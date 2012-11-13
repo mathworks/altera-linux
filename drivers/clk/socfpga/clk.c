@@ -82,6 +82,9 @@ void __init socfpga_init_clocks(void)
 	clk = clk_register_fixed_rate(NULL, "dbg_base_clk", NULL, CLK_IS_ROOT, SOCFPGA_MPU_CLK/2);
 	clk_register_clkdev(clk, "dbg_base_clk", NULL);
 
+	clk = clk_register_fixed_rate(NULL, "smp_twd", NULL, CLK_IS_ROOT, SOCFPGA_MPU_CLK/2);
+	clk_register_clkdev(clk, NULL, "smp_twd");
+
 	clk = clk_register_fixed_rate(NULL, "main_qspi_clk", NULL, CLK_IS_ROOT, SOCFPGA_MAIN_QSPI_CLK);
 	clk_register_clkdev(clk, "main_qspi_clk", NULL);
 
