@@ -26,12 +26,6 @@
 		bootargs = "console=ttyS0,57600";
 	};
 
-	memory {
-		name = "memory";
-		device_type = "memory";
-		reg = <0x0 0x40000000>; /* 1 GB */
-	};
-
 	soc {
 		timer0@ffc08000 {
 			clock-frequency = <7000000>;
@@ -59,6 +53,15 @@
 
 		sysmgr@ffd08000 {
 			cpu1-start-addr = <0xffd08010>;
+		};
+
+		stmmac@ff700000 {
+			phy-mode = "gmii";
+			status = "okay";
+		};
+
+		stmmac@ff702000 {
+			phy-mode = "gmii";
 		};
 
 		qspi: spi@ff705000 {
