@@ -91,9 +91,11 @@ static inline int dw_i2c_acpi_configure(struct platform_device *pdev)
 static int dw_i2c_probe(struct platform_device *pdev)
 {
 	struct dw_i2c_dev *dev;
+	struct device_node *np = pdev->dev.of_node;
 	struct i2c_adapter *adap;
 	struct resource *mem, *ioarea;
 	int irq, r;
+	int speed, speed_prop, ret;
 
 	/* NOTE: driver uses the static register mapping */
 	mem = platform_get_resource(pdev, IORESOURCE_MEM, 0);
@@ -143,8 +145,16 @@ static int dw_i2c_probe(struct platform_device *pdev)
 		I2C_FUNC_SMBUS_BYTE_DATA |
 		I2C_FUNC_SMBUS_WORD_DATA |
 		I2C_FUNC_SMBUS_I2C_BLOCK;
+
+	/* Get speed from device tree.  Default to fast speed. */
+	speed = DW_IC_CON_SPEED_FAST;
+	if (np) {
+		ret = of_property_read_u32(np, "speed-mode", &speed_prop);
+		if (!ret && (speed_prop == 0))
+			speed = DW_IC_CON_SPEED_STD;
+	}
 	dev->master_cfg =  DW_IC_CON_MASTER | DW_IC_CON_SLAVE_DISABLE |
-		DW_IC_CON_RESTART_EN | DW_IC_CON_SPEED_FAST;
+		DW_IC_CON_RESTART_EN | speed;
 
 	dev->base = ioremap(mem->start, resource_size(mem));
 	if (dev->base == NULL) {

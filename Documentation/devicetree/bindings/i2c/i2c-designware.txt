@@ -9,6 +9,8 @@ Required properties :
 Recommended properties :
 
  - clock-frequency : desired I2C bus clock frequency in Hz.
+ - speed-mode      : 0 = standard (0 - 100Kb/s)
+                   : 1 = fast (<= 400Kb/s) <== default
 
 Example :
 
@@ -19,4 +21,5 @@ Example :
 		reg = <0xf0000 0x1000>;
 		interrupts = <11>;
 		clock-frequency = <400000>;
+		speed-mode = <1>;
 	};
