@@ -113,12 +113,12 @@ void __init socfpga_init_clocks(void)
 	clk = clk_register_gate(NULL, "gmac0_clk", "per_pll_clk", 0,
 			clk_mgr_base_addr + CLKMGR_PERPLLGRP_EN,
 			CLKMGR_EMAC0_CLK_EN, 0, &_lock);
-	clk_register_clkdev(clk, NULL, "ff700000.stmmac");
+	clk_register_clkdev(clk, NULL, "ff700000.ethernet");
 
 	clk = clk_register_gate(NULL, "gmac1_clk", "per_pll_clk", 0,
 			clk_mgr_base_addr + CLKMGR_PERPLLGRP_EN,
 			CLKMGR_EMAC1_CLK_EN, 0, &_lock);
-	clk_register_clkdev(clk, NULL, "ff702000.stmmac");
+	clk_register_clkdev(clk, NULL, "ff702000.ethernet");
 
 	clk = clk_register_gate(NULL, "spi0_clk", "per_pll_clk", 0,
 			clk_mgr_base_addr + CLKMGR_PERPLLGRP_EN,
