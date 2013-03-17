@@ -26,6 +26,12 @@
 		bootargs = "console=ttyS0,57600";
 	};
 
+	memory {
+                name = "memory";
+                device_type = "memory";
+                reg = <0x0 0x40000000>; /* 1 GB */
+        };
+
 	soc {
 		timer0@ffc08000 {
 			clock-frequency = <7000000>;
