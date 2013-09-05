@@ -143,8 +143,10 @@ static void __init socfpga_scu_map_io(void)
 
 static void __init enable_periphs(void)
 {
-	/* Release all peripherals from reset.*/
-	__raw_writel(0, rst_manager_base_addr + SOCFPGA_RSTMGR_MODPERRST);
+	/* Release all peripherals, except for emacs, from reset.*/
+	u32 rstval;
+	rstval = RSTMGR_PERMODRST_EMAC0 | RSTMGR_PERMODRST_EMAC1;
+	__raw_writel(rstval, rst_manager_base_addr + SOCFPGA_RSTMGR_MODPERRST);
 }
 
 #define MICREL_KSZ9021_EXTREG_CTRL 11
@@ -173,6 +175,7 @@ static int ksz9021rlrn_phy_fixup(struct phy_device *phydev)
 static int stmmac_plat_init(struct platform_device *pdev)
 {
 	u32 ctrl, val, shift;
+	u32 rstmask;
 	int phymode;
 
 	if (of_machine_is_compatible("altr,socfpga-vt"))
@@ -193,11 +196,13 @@ static int stmmac_plat_init(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	if (&stmmacenet1_data == pdev->dev.platform_data)
+	if (&stmmacenet1_data == pdev->dev.platform_data) {
 		shift = SYSMGR_EMACGRP_CTRL_PHYSEL_WIDTH;
-	else if (&stmmacenet0_data == pdev->dev.platform_data)
+		rstmask = RSTMGR_PERMODRST_EMAC1;
+	} else if (&stmmacenet0_data == pdev->dev.platform_data) {
 		shift = 0;
-	else {
+		rstmask = RSTMGR_PERMODRST_EMAC0;
+	} else {
 		pr_err("%s unexpected platform data pointer\n", __func__);
 		return -EINVAL;
 	}
@@ -211,6 +216,10 @@ static int stmmac_plat_init(struct platform_device *pdev)
 
 	__raw_writel(ctrl, (sys_manager_base_addr +
 		SYSMGR_EMACGRP_CTRL_OFFSET));
+
+	ctrl = readl(rst_manager_base_addr + SOCFPGA_RSTMGR_MODPERRST);
+	ctrl &= ~(rstmask);
+	__raw_writel(ctrl, rst_manager_base_addr + SOCFPGA_RSTMGR_MODPERRST);
 
 	return 0;
 }
