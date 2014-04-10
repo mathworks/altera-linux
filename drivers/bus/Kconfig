@@ -19,4 +19,7 @@ config OMAP_INTERCONNECT
 
 	help
 	  Driver to enable OMAP interconnect error handling driver.
+
+source "drivers/bus/axi4/Kconfig"
+
 endmenu
