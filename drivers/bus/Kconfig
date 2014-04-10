@@ -4,6 +4,8 @@
 
 menu "Bus devices"
 
+source "drivers/bus/axi4/Kconfig"
+
 config BRCMSTB_GISB_ARB
 	bool "Broadcom STB GISB bus arbiter"
 	depends on ARM || MIPS

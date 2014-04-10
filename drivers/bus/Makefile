@@ -10,6 +10,8 @@ obj-$(CONFIG_OMAP_OCP2SCP)	+= omap-ocp2scp.o
 # Interconnect bus driver for OMAP SoCs.
 obj-$(CONFIG_OMAP_INTERCONNECT)	+= omap_l3_smx.o omap_l3_noc.o
 
+obj-$(CONFIG_AXI4) += axi4/
+
 # Interconnect bus drivers for ARM platforms
 obj-$(CONFIG_ARM_CCI)		+= arm-cci.o
 obj-$(CONFIG_ARM_CCN)		+= arm-ccn.o
