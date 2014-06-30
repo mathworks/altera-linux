@@ -1,0 +1,176 @@
+/*
+ *  Copyright (C) 2012 Altera Corporation <www.altera.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ */
+
+/dts-v1/;
+/include/ "socfpga.dtsi"
+
+/ {
+	model = "Terrasic SoCkit";
+	compatible = "altr,socfpga-cyclone5", "altr,socfpga";
+
+	chosen {
+		bootargs = "console=ttyS0,115200 root=/dev/mmcblk0p2 rw rootwait";
+	};
+
+	memory {
+		name = "memory";
+		device_type = "memory";
+		reg = <0x0 0x40000000>; /* 1 GB */
+	};
+
+	aliases {
+		/* this allow the ethaddr uboot environmnet variable contents
+		 * to be added to the gmac1 device tree blob.
+		 */
+		ethernet0 = &gmac1;
+	};
+
+	soc {
+		clkmgr@ffd04000 {
+			clocks {
+				osc1 {
+					clock-frequency = <25000000>;
+				};
+			};
+		};
+
+		dwmmc0@ff704000 {
+			num-slots = <1>;
+			supports-highspeed;
+			broken-cd;
+			altr,dw-mshc-ciu-div = <3>;
+			altr,dw-mshc-sdr-timing = <0 3>;
+
+			slot@0 {
+				reg = <0>;
+				bus-width = <4>;
+			};
+		};
+
+		ethernet@ff702000 {
+			phy-mode = "rgmii";
+			phy-addr = <0xffffffff>; /* probe for phy addr */
+			status = "okay";
+		};
+
+		i2c1: i2c@ffc05000 {
+			speed-mode = <0>;
+			status = "okay";
+		};
+
+		qspi: spi@ff705000 {
+			compatible = "cadence,qspi";
+                        #address-cells = <1>;
+			#size-cells = <0>;
+			reg = <0xff705000 0x1000>,
+				<0xffa00000 0x1000>;
+			interrupts = <0 151 4>;
+			master-ref-clk = <400000000>;
+			ext-decoder = <0>;  /* external decoder */
+			num-chipselect = <4>;
+			fifo-depth = <128>;
+			bus-num = <2>;
+
+			flash0: n25q00@0 {
+				#address-cells = <1>;
+				#size-cells = <1>;
+				compatible = "n25q00";
+				reg = <0>;      /* chip select */
+				spi-max-frequency = <100000000>;
+				m25p,fast-read;
+				page-size = <256>;
+				block-size = <16>; /* 2^16, 64KB */
+				read-delay = <4>;  /* delay value in read data capture register */
+				tshsl-ns = <50>;
+				tsd2d-ns = <50>;
+				tchsh-ns = <4>;
+				tslch-ns = <4>;
+
+				partition@qspi-boot {
+					/* 8MB for raw data. */
+					label = "Flash 0 Raw Data";
+					reg = <0x0 0x800000>;
+				};
+				partition@qspi-rootfs {
+					/* 120MB for jffs2 data. */
+					label = "Flash 0 jffs2 Filesystem";
+					reg = <0x800000 0x7800000>;
+				};
+			};
+		};
+
+		timer0@ffc08000 {
+			clock-frequency = <100000000>;
+		};
+
+		timer1@ffc09000 {
+			clock-frequency = <100000000>;
+		};
+
+		timer2@ffd00000 {
+			clock-frequency = <25000000>;
+		};
+
+		timer3@ffd01000 {
+			clock-frequency = <25000000>;
+		};
+
+		serial0@ffc02000 {
+			clock-frequency = <100000000>;
+		};
+
+		serial1@ffc03000 {
+			clock-frequency = <100000000>;
+		};
+
+		sysmgr@ffd08000 {
+			cpu1-start-addr = <0xffd080c4>;
+		};
+
+		usb1: usb@ffb40000 {
+			ulpi-ddr = <0>;
+			status = "okay";
+		};
+
+		watchdog0: wd@ffd02000 {
+			status = "okay";
+		};
+
+		leds {
+			compatible = "gpio-leds";
+			hps0 {
+				label = "hps_led0";
+				gpios = <&gpio1 24 0>;
+			};
+
+			hps1 {
+				label = "hps_led1";
+				gpios = <&gpio1 25 0>;
+			};
+
+			hps2 {
+				label = "hps_led2";
+				gpios = <&gpio1 26 0>;
+			};
+
+			hps3 {
+				label = "hps_led3";
+				gpios = <&gpio1 27 0>;
+			};
+		};
+	};
+};
