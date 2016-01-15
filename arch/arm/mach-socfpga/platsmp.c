@@ -2,7 +2,7 @@
  * Copyright 2010-2011 Calxeda, Inc.
  * Copyright 2012 Pavel Machek <pavel@denx.de>
  * Based on platsmp.c, Copyright (C) 2002 ARM Ltd.
- * Copyright (C) 2012-2013 Altera Corporation
+ * Copyright (C) 2012 Altera Corporation
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -22,7 +22,6 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
-#include <linux/irqchip/arm-gic.h>
 
 #include <asm/cacheflush.h>
 #include <asm/smp_scu.h>
@@ -30,32 +29,35 @@
 
 #include "core.h"
 
-static void __cpuinit socfpga_secondary_init(unsigned int cpu)
-{
-	/*
-	 * if any interrupts are already enabled for the primary
-	 * core (e.g. timer irq), then they will not have been enabled
-	 * for us: do so
-	 */
-	gic_secondary_init(0);
-}
-
-static int __cpuinit socfpga_boot_secondary(unsigned int cpu, struct task_struct *idle)
+static int socfpga_boot_secondary(unsigned int cpu, struct task_struct *idle)
 {
 	int trampoline_size = &secondary_trampoline_end - &secondary_trampoline;
 
-	if (cpu1start_addr) {
+	if (socfpga_cpu1start_addr) {
+		/* This will put CPU #1 into reset. */
+		if (of_machine_is_compatible("altr,socfpga-arria10"))
+			writel(RSTMGR_MPUMODRST_CPU1, rst_manager_base_addr +
+			       SOCFPGA_A10_RSTMGR_MODMPURST);
+		else
+			writel(RSTMGR_MPUMODRST_CPU1, rst_manager_base_addr +
+			       SOCFPGA_RSTMGR_MODMPURST);
+
 		memcpy(phys_to_virt(0), &secondary_trampoline, trampoline_size);
 
-		__raw_writel(virt_to_phys(socfpga_secondary_startup),
-			(sys_manager_base_addr+(cpu1start_addr & 0x000000ff)));
+		writel(virt_to_phys(socfpga_secondary_startup),
+		       sys_manager_base_addr + (socfpga_cpu1start_addr & 0x00000fff));
 
 		flush_cache_all();
 		smp_wmb();
 		outer_clean_range(0, trampoline_size);
 
 		/* This will release CPU #1 out of reset.*/
-		__raw_writel(0, rst_manager_base_addr + 0x10);
+		if (of_machine_is_compatible("altr,socfpga-arria10"))
+			writel(0, rst_manager_base_addr +
+			       SOCFPGA_A10_RSTMGR_MODMPURST);
+		else
+			writel(0, rst_manager_base_addr +
+			       SOCFPGA_RSTMGR_MODMPURST);
 	}
 
 	return 0;
@@ -100,19 +102,14 @@ static void socfpga_cpu_die(unsigned int cpu)
 	/* Flush the L1 data cache. */
 	flush_cache_all();
 
-	/* This will put CPU #1 into reset.*/
-	__raw_writel(RSTMGR_MPUMODRST_CPU1, rst_manager_base_addr + 0x10);
-
-	cpu_do_idle();
-
-	/* We should have never returned from idle */
-	panic("cpu %d unexpectedly exit from shutdown\n", cpu);
+	/* Do WFI. If we wake up early, go back into WFI */
+	while (1)
+		cpu_do_idle();
 }
 
 struct smp_operations socfpga_smp_ops __initdata = {
 	.smp_init_cpus		= socfpga_smp_init_cpus,
 	.smp_prepare_cpus	= socfpga_smp_prepare_cpus,
-	.smp_secondary_init	= socfpga_secondary_init,
 	.smp_boot_secondary	= socfpga_boot_secondary,
 #ifdef CONFIG_HOTPLUG_CPU
 	.cpu_die		= socfpga_cpu_die,

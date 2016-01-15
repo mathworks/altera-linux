@@ -61,7 +61,7 @@ int qib_alloc_lkey(struct qib_mregion *mr, int dma_region)
 	if (dma_region) {
 		struct qib_mregion *tmr;
 
-		tmr = rcu_dereference(dev->dma_mr);
+		tmr = rcu_access_pointer(dev->dma_mr);
 		if (!tmr) {
 			qib_get_mr(mr);
 			rcu_assign_pointer(dev->dma_mr, mr);
@@ -122,10 +122,10 @@ void qib_free_lkey(struct qib_mregion *mr)
 	if (!mr->lkey_published)
 		goto out;
 	if (lkey == 0)
-		rcu_assign_pointer(dev->dma_mr, NULL);
+		RCU_INIT_POINTER(dev->dma_mr, NULL);
 	else {
 		r = lkey >> (32 - ib_qib_lkey_table_size);
-		rcu_assign_pointer(rkt->table[r], NULL);
+		RCU_INIT_POINTER(rkt->table[r], NULL);
 	}
 	qib_put_mr(mr);
 	mr->lkey_published = 0;

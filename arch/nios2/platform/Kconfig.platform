@@ -2,7 +2,7 @@ menu "Platform options"
 
 comment "Memory settings"
 
-config MEM_BASE
+config NIOS2_MEM_BASE
 	hex "Memory base address"
 	default "0x00000000"
 	help
@@ -23,7 +23,7 @@ config NIOS2_DTB_AT_PHYS_ADDR
 	  Normally this address is passed by a bootloader such as u-boot but
 	  using this you can use a devicetree without a bootloader.
 	  This way you can store a devicetree in NOR flash or an onchip rom.
-	  Please note that this addres is used directly so you have to manually
+	  Please note that this address is used directly so you have to manually
 	  do address translation if it's connected to a bridge. Also take into
 	  account that when using an MMU you'd have to ad 0xC0000000 to your
 	  address
@@ -35,16 +35,16 @@ config NIOS2_DTB_PHYS_ADDR
 	help
 	  Physical address of a dtb blob.
 
-config DTB_SOURCE_BOOL
+config NIOS2_DTB_SOURCE_BOOL
 	bool "Compile and link device tree into kernel image"
 	default n
 	help
 	  This allows you to specify a dts (device tree source) file
 	  which will be compiled and linked into the kernel image.
 
-config DTB_SOURCE
+config NIOS2_DTB_SOURCE
 	string "Device tree source file"
-	depends on DTB_SOURCE_BOOL
+	depends on NIOS2_DTB_SOURCE_BOOL
 	default ""
 	help
 	  Absolute path to the device tree source (dts) file describing your
@@ -83,15 +83,15 @@ config NIOS2_CI_SWAB_SUPPORT
 	bool "Byteswap custom instruction"
 	default n
 	help
-	  Use the byteswap (endian convertor) Nios II custom instruction provided
-	  by Altera and which can be enabled in SOPC builder. This accelerates
+	  Use the byteswap (endian converter) Nios II custom instruction provided
+	  by Altera and which can be enabled in QSYS builder. This accelerates
 	  endian conversions in the kernel (e.g. ntohs).
 
 config NIOS2_CI_SWAB_NO
 	int "Byteswap custom instruction number" if NIOS2_CI_SWAB_SUPPORT
 	default 0
 	help
-	  Number of the instruction as configured in SOPC Builder.
+	  Number of the instruction as configured in QSYS Builder.
 
 comment "Cache settings"
 
@@ -107,33 +107,23 @@ config CUSTOM_CACHE_SETTINGS
 
 config NIOS2_DCACHE_SIZE
 	hex "D-Cache size" if CUSTOM_CACHE_SETTINGS
-	default "0x10000"
+	range 0x200 0x10000
+	default "0x800"
 	help
 	  Maximum possible data cache size.
 
 config NIOS2_DCACHE_LINE_SIZE
 	hex "D-Cache line size" if CUSTOM_CACHE_SETTINGS
-	default "0x4"
+	range 0x10 0x20
+	default "0x20"
 	help
 	  Minimum possible data cache line size.
 
 config NIOS2_ICACHE_SIZE
 	hex "I-Cache size" if CUSTOM_CACHE_SETTINGS
-	default "0x10000"
+	range 0x200 0x10000
+	default "0x1000"
 	help
 	  Maximum possible instruction cache size.
-
-config NIOS2_ICACHE_LINE_SIZE
-	hex "I-Cache line size" if CUSTOM_CACHE_SETTINGS
-	default "0x20"
-	help
-	  Maximum possible instruction cache line size.
-
-config NIOS2_ICACHE_LINE_SHIFT
-	hex "I-Cache line shift" if CUSTOM_CACHE_SETTINGS
-	default "0x5"
-	help
-	  log2 of the instruction cache line size. This must match
-	  CONFIG_NIOS2_ICACHE_LINE_SIZE.
 
 endmenu

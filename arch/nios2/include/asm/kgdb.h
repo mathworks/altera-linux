@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2015 Altera Corporation
  * Copyright (C) 2011 Tobias Klauser <tklauser@distanz.ch>
  *
  * Based on the code posted by Kazuyasu on the Altera Forum at:
@@ -70,23 +71,23 @@ enum regnames {
 	GDB_PTEADDR,
 	GDB_TLBACC,
 	GDB_TLBMISC,
-	GDB_CTL11,
+	GDB_ECCINJ,
 	GDB_BADADDR,
 	GDB_CONFIG,
+	GDB_MPUBASE,
+	GDB_MPUACC,
 	/* do not change the last entry or anything below! */
 	GDB_NUMREGBYTES		/* number of registers */
 };
 
-#define NUMREGBYTES		(GDB_NUMREGBYTES * 4)
+#define GDB_SIZEOF_REG		sizeof(u32)
+#define DBG_MAX_REG_NUM	(49)
+#define NUMREGBYTES		(DBG_MAX_REG_NUM * sizeof(GDB_SIZEOF_REG))
 
 #define BREAK_INSTR_SIZE	4
 static inline void arch_kgdb_breakpoint(void)
 {
-	/*
-	 * we cannot use 'trap 30' here as the nios2 assembler is bugged and
-	 * does consider any argument an error, so we just encode it directly.
-	 */
-	__asm__ __volatile__ (".word 0x003b6fba");
+	__asm__ __volatile__("trap 30\n");
 }
 
 #endif /* _ASM_NIOS2_KGDB_H */

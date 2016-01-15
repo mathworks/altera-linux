@@ -24,6 +24,7 @@ class Unsup(Exception):
 
 class Event(dict):
     terms = [
+        'cpu',
         'flags',
         'type',
         'size',
@@ -103,7 +104,6 @@ class Event(dict):
                 continue
             if not self.compare_data(self[t], other[t]):
 		log.warning("expected %s=%s, got %s" % (t, self[t], other[t]))
-                
 
 # Test file description needs to have following sections:
 # [config]
@@ -121,7 +121,7 @@ class Test(object):
         parser = ConfigParser.SafeConfigParser()
         parser.read(path)
 
-        log.debug("running '%s'" % path)
+        log.warning("running '%s'" % path)
 
         self.path     = path
         self.test_dir = options.test_dir
@@ -172,7 +172,7 @@ class Test(object):
               self.perf, self.command, tempdir, self.args)
         ret = os.WEXITSTATUS(os.system(cmd))
 
-        log.warning("  running '%s' ret %d " % (cmd, ret))
+        log.info("  '%s' ret %d " % (cmd, ret))
 
         if ret != int(self.ret):
             raise Unsup(self)

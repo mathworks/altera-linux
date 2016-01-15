@@ -1,6 +1,7 @@
 /*
  * Nios2 KGDB support
  *
+ * Copyright (C) 2015 Altera Corporation
  * Copyright (C) 2011 Tobias Klauser <tklauser@distanz.ch>
  *
  * Based on the code posted by Kazuyasu on the Altera Forum at:
@@ -27,61 +28,88 @@
 
 static int wait_for_remote_debugger;
 
-void pt_regs_to_gdb_regs(unsigned long *gdb_regs, struct pt_regs *regs)
+struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] =
 {
-	gdb_regs[GDB_R0] = 0;
-	gdb_regs[GDB_AT] = regs->r1;
-	gdb_regs[GDB_R2] = regs->r2;
-	gdb_regs[GDB_R3] = regs->r3;
-	gdb_regs[GDB_R4] = regs->r4;
-	gdb_regs[GDB_R5] = regs->r5;
-	gdb_regs[GDB_R6] = regs->r6;
-	gdb_regs[GDB_R7] = regs->r7;
-	gdb_regs[GDB_R8] = regs->r8;
-	gdb_regs[GDB_R9] = regs->r9;
-	gdb_regs[GDB_R10] = regs->r10;
-	gdb_regs[GDB_R11] = regs->r11;
-	gdb_regs[GDB_R12] = regs->r12;
-	gdb_regs[GDB_R13] = regs->r13;
-	gdb_regs[GDB_R14] = regs->r14;
-	gdb_regs[GDB_R15] = regs->r15;
+	{ "zero", GDB_SIZEOF_REG, -1 },
+	{ "at", GDB_SIZEOF_REG, offsetof(struct pt_regs, r1) },
+	{ "r2", GDB_SIZEOF_REG, offsetof(struct pt_regs, r2) },
+	{ "r3", GDB_SIZEOF_REG, offsetof(struct pt_regs, r3) },
+	{ "r4", GDB_SIZEOF_REG, offsetof(struct pt_regs, r4) },
+	{ "r5", GDB_SIZEOF_REG, offsetof(struct pt_regs, r5) },
+	{ "r6", GDB_SIZEOF_REG, offsetof(struct pt_regs, r6) },
+	{ "r7", GDB_SIZEOF_REG, offsetof(struct pt_regs, r7) },
+	{ "r8", GDB_SIZEOF_REG, offsetof(struct pt_regs, r8) },
+	{ "r9", GDB_SIZEOF_REG, offsetof(struct pt_regs, r9) },
+	{ "r10", GDB_SIZEOF_REG, offsetof(struct pt_regs, r10) },
+	{ "r11", GDB_SIZEOF_REG, offsetof(struct pt_regs, r11) },
+	{ "r12", GDB_SIZEOF_REG, offsetof(struct pt_regs, r12) },
+	{ "r13", GDB_SIZEOF_REG, offsetof(struct pt_regs, r13) },
+	{ "r14", GDB_SIZEOF_REG, offsetof(struct pt_regs, r14) },
+	{ "r15", GDB_SIZEOF_REG, offsetof(struct pt_regs, r15) },
+	{ "r16", GDB_SIZEOF_REG, -1 },
+	{ "r17", GDB_SIZEOF_REG, -1 },
+	{ "r18", GDB_SIZEOF_REG, -1 },
+	{ "r19", GDB_SIZEOF_REG, -1 },
+	{ "r20", GDB_SIZEOF_REG, -1 },
+	{ "r21", GDB_SIZEOF_REG, -1 },
+	{ "r22", GDB_SIZEOF_REG, -1 },
+	{ "r23", GDB_SIZEOF_REG, -1 },
+	{ "et", GDB_SIZEOF_REG, -1 },
+	{ "bt", GDB_SIZEOF_REG, -1 },
+	{ "gp", GDB_SIZEOF_REG, offsetof(struct pt_regs, gp) },
+	{ "sp", GDB_SIZEOF_REG, offsetof(struct pt_regs, sp) },
+	{ "fp", GDB_SIZEOF_REG, offsetof(struct pt_regs, fp) },
+	{ "ea", GDB_SIZEOF_REG, -1 },
+	{ "ba", GDB_SIZEOF_REG, -1 },
+	{ "ra", GDB_SIZEOF_REG, offsetof(struct pt_regs, ra) },
+	{ "pc", GDB_SIZEOF_REG, offsetof(struct pt_regs, ea) },
+	{ "status", GDB_SIZEOF_REG, -1 },
+	{ "estatus", GDB_SIZEOF_REG, offsetof(struct pt_regs, estatus) },
+	{ "bstatus", GDB_SIZEOF_REG, -1 },
+	{ "ienable", GDB_SIZEOF_REG, -1 },
+	{ "ipending", GDB_SIZEOF_REG, -1},
+	{ "cpuid", GDB_SIZEOF_REG, -1 },
+	{ "ctl6", GDB_SIZEOF_REG, -1 },
+	{ "exception", GDB_SIZEOF_REG, -1 },
+	{ "pteaddr", GDB_SIZEOF_REG, -1 },
+	{ "tlbacc", GDB_SIZEOF_REG, -1 },
+	{ "tlbmisc", GDB_SIZEOF_REG, -1 },
+	{ "eccinj", GDB_SIZEOF_REG, -1 },
+	{ "badaddr", GDB_SIZEOF_REG, -1 },
+	{ "config", GDB_SIZEOF_REG, -1 },
+	{ "mpubase", GDB_SIZEOF_REG, -1 },
+	{ "mpuacc", GDB_SIZEOF_REG, -1 },
+};
 
-	gdb_regs[GDB_RA] = regs->ra;
-	gdb_regs[GDB_FP] = regs->fp;
-	gdb_regs[GDB_SP] = regs->sp;
-	gdb_regs[GDB_GP] = regs->gp;
-	gdb_regs[GDB_ESTATUS] = regs->estatus;
-	gdb_regs[GDB_PC] = regs->ea;
+char *dbg_get_reg(int regno, void *mem, struct pt_regs *regs)
+{
+	if (regno >= DBG_MAX_REG_NUM || regno < 0)
+		return NULL;
+
+	if (dbg_reg_def[regno].offset != -1)
+		memcpy(mem, (void *)regs + dbg_reg_def[regno].offset,
+		       dbg_reg_def[regno].size);
+	else
+		memset(mem, 0, dbg_reg_def[regno].size);
+
+	return dbg_reg_def[regno].name;
 }
 
-void gdb_regs_to_pt_regs(unsigned long *gdb_regs, struct pt_regs *regs)
+int dbg_set_reg(int regno, void *mem, struct pt_regs *regs)
 {
-	regs->r1 = gdb_regs[GDB_AT];
-	regs->r2 = gdb_regs[GDB_R2];
-	regs->r3 = gdb_regs[GDB_R3];
-	regs->r4 = gdb_regs[GDB_R4];
-	regs->r5 = gdb_regs[GDB_R5];
-	regs->r6 = gdb_regs[GDB_R6];
-	regs->r7 = gdb_regs[GDB_R7];
-	regs->r8 = gdb_regs[GDB_R8];
-	regs->r9 = gdb_regs[GDB_R9];
-	regs->r10 = gdb_regs[GDB_R10];
-	regs->r11 = gdb_regs[GDB_R11];
-	regs->r12 = gdb_regs[GDB_R12];
-	regs->r13 = gdb_regs[GDB_R13];
-	regs->r14 = gdb_regs[GDB_R14];
-	regs->r15 = gdb_regs[GDB_R15];
+	if (regno >= DBG_MAX_REG_NUM || regno < 0)
+		return -EINVAL;
 
-	regs->ra = gdb_regs[GDB_RA];
-	regs->fp = gdb_regs[GDB_FP];
-	regs->sp = gdb_regs[GDB_SP];
-	regs->gp = gdb_regs[GDB_GP];
-	regs->estatus = gdb_regs[GDB_ESTATUS];
-	regs->ea = gdb_regs[GDB_PC];
+	if (dbg_reg_def[regno].offset != -1)
+		memcpy((void *)regs + dbg_reg_def[regno].offset, mem,
+		       dbg_reg_def[regno].size);
+
+	return 0;
 }
 
 void sleeping_thread_to_gdb_regs(unsigned long *gdb_regs, struct task_struct *p)
 {
+	memset((char *)gdb_regs, 0, NUMREGBYTES);
 	gdb_regs[GDB_SP] = p->thread.kregs->sp;
 	gdb_regs[GDB_PC] = p->thread.kregs->ea;
 }

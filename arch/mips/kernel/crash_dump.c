@@ -2,16 +2,7 @@
 #include <linux/bootmem.h>
 #include <linux/crash_dump.h>
 #include <asm/uaccess.h>
-
-static int __init parse_savemaxmem(char *p)
-{
-	if (p)
-		saved_max_pfn = (memparse(p, &p) >> PAGE_SHIFT) - 1;
-
-	return 1;
-}
-__setup("savemaxmem=", parse_savemaxmem);
-
+#include <linux/slab.h>
 
 static void *kdump_buf_page;
 
@@ -47,7 +38,7 @@ ssize_t copy_oldmem_page(unsigned long pfn, char *buf,
 		kunmap_atomic(vaddr);
 	} else {
 		if (!kdump_buf_page) {
-			pr_warning("Kdump: Kdump buffer page not allocated\n");
+			pr_warn("Kdump: Kdump buffer page not allocated\n");
 
 			return -EFAULT;
 		}
@@ -66,7 +57,7 @@ static int __init kdump_buf_page_init(void)
 
 	kdump_buf_page = kmalloc(PAGE_SIZE, GFP_KERNEL);
 	if (!kdump_buf_page) {
-		pr_warning("Kdump: Failed to allocate kdump buffer page\n");
+		pr_warn("Kdump: Failed to allocate kdump buffer page\n");
 		ret = -ENOMEM;
 	}
 

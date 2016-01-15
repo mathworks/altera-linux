@@ -29,7 +29,7 @@ jiffies = jiffies_64;
 
 SECTIONS
 {
-	. = CONFIG_MEM_BASE | CONFIG_KERNEL_REGION_BASE;
+	. = CONFIG_NIOS2_MEM_BASE | CONFIG_NIOS2_KERNEL_REGION_BASE;
 
 	_text = .;
 	_stext = .;
@@ -42,6 +42,13 @@ SECTIONS
 		KPROBES_TEXT
 	} =0
 	_etext = .;
+
+	.got : {
+		*(.got.plt)
+		*(.igot.plt)
+		*(.got)
+		*(.igot)
+	}
 
 	EXCEPTION_TABLE(L1_CACHE_BYTES)
 

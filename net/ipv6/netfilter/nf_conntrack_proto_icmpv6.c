@@ -84,13 +84,13 @@ static bool icmpv6_invert_tuple(struct nf_conntrack_tuple *tuple,
 }
 
 /* Print out the per-protocol part of the tuple. */
-static int icmpv6_print_tuple(struct seq_file *s,
+static void icmpv6_print_tuple(struct seq_file *s,
 			      const struct nf_conntrack_tuple *tuple)
 {
-	return seq_printf(s, "type=%u code=%u id=%u ",
-			  tuple->dst.u.icmp.type,
-			  tuple->dst.u.icmp.code,
-			  ntohs(tuple->src.u.icmp.id));
+	seq_printf(s, "type=%u code=%u id=%u ",
+		   tuple->dst.u.icmp.type,
+		   tuple->dst.u.icmp.code,
+		   ntohs(tuple->src.u.icmp.id));
 }
 
 static unsigned int *icmpv6_get_timeouts(struct net *net)
@@ -131,7 +131,8 @@ static bool icmpv6_new(struct nf_conn *ct, const struct sk_buff *skb,
 			 type + 128);
 		nf_ct_dump_tuple_ipv6(&ct->tuplehash[0].tuple);
 		if (LOG_INVALID(nf_ct_net(ct), IPPROTO_ICMPV6))
-			nf_log_packet(PF_INET6, 0, skb, NULL, NULL, NULL,
+			nf_log_packet(nf_ct_net(ct), PF_INET6, 0, skb, NULL,
+				      NULL, NULL,
 				      "nf_ct_icmpv6: invalid new with type %d ",
 				      type + 128);
 		return false;
@@ -203,7 +204,7 @@ icmpv6_error(struct net *net, struct nf_conn *tmpl,
 	icmp6h = skb_header_pointer(skb, dataoff, sizeof(_ih), &_ih);
 	if (icmp6h == NULL) {
 		if (LOG_INVALID(net, IPPROTO_ICMPV6))
-		nf_log_packet(PF_INET6, 0, skb, NULL, NULL, NULL,
+			nf_log_packet(net, PF_INET6, 0, skb, NULL, NULL, NULL,
 			      "nf_ct_icmpv6: short packet ");
 		return -NF_ACCEPT;
 	}
@@ -211,7 +212,7 @@ icmpv6_error(struct net *net, struct nf_conn *tmpl,
 	if (net->ct.sysctl_checksum && hooknum == NF_INET_PRE_ROUTING &&
 	    nf_ip6_checksum(skb, hooknum, dataoff, IPPROTO_ICMPV6)) {
 		if (LOG_INVALID(net, IPPROTO_ICMPV6))
-			nf_log_packet(PF_INET6, 0, skb, NULL, NULL, NULL,
+			nf_log_packet(net, PF_INET6, 0, skb, NULL, NULL, NULL,
 				      "nf_ct_icmpv6: ICMPv6 checksum failed ");
 		return -NF_ACCEPT;
 	}

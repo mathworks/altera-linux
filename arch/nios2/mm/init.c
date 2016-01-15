@@ -1,4 +1,5 @@
 /*
+ * Copyright (C) 2013 Altera Corporation
  * Copyright (C) 2010 Tobias Klauser <tklauser@distanz.ch>
  * Copyright (C) 2009 Wind River Systems Inc
  *   Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
@@ -24,6 +25,7 @@
 #include <linux/pagemap.h>
 #include <linux/bootmem.h>
 #include <linux/slab.h>
+#include <linux/binfmts.h>
 
 #include <asm/setup.h>
 #include <asm/page.h>
@@ -32,10 +34,9 @@
 #include <asm/tlb.h>
 #include <asm/mmu_context.h>
 #include <asm/cpuinfo.h>
+#include <asm/processor.h>
 
-#ifdef CONFIG_MMU
 pgd_t *pgd_current;
-#endif
 
 /*
  * paging_init() continues the virtual memory environment setup which
@@ -46,47 +47,23 @@ pgd_t *pgd_current;
 void __init paging_init(void)
 {
 	unsigned long zones_size[MAX_NR_ZONES];
-	unsigned long start_mem, end_mem;
 
 	memset(zones_size, 0, sizeof(zones_size));
 
-	/*
-	 * Make sure start_mem is page aligned, otherwise bootmem and
-	 * page_alloc get different views of the world.
-	 */
-#ifdef CONFIG_MMU
-	start_mem = PHYS_OFFSET;
-	end_mem   = memory_end;
-#else
-	start_mem = PAGE_ALIGN(memory_start);
-	end_mem   = memory_end & PAGE_MASK;
-#endif /* CONFIG_MMU */
-
-#ifdef CONFIG_MMU
 	pagetable_init();
 	pgd_current = swapper_pg_dir;
-#endif
 
-	/*
-	 * Set up SFC/DFC registers (user data space).
-	 */
-#ifndef CONFIG_MMU
-	set_fs(KERNEL_DS);
-#endif
-
-#ifdef CONFIG_MMU
-	zones_size[ZONE_DMA] = ((end_mem - start_mem) >> PAGE_SHIFT);
-#else
-	zones_size[ZONE_DMA] = (end_mem - PAGE_OFFSET) >> PAGE_SHIFT;
-#endif /* CONFIG_MMU */
+	zones_size[ZONE_NORMAL] = max_mapnr;
 
 	/* pass the memory from the bootmem allocator to the main allocator */
 	free_area_init(zones_size);
+
+	flush_dcache_range((unsigned long)empty_zero_page,
+			(unsigned long)empty_zero_page + PAGE_SIZE);
 }
 
 void __init mem_init(void)
 {
-	unsigned int codek = 0, datak = 0;
 	unsigned long end_mem   = memory_end; /* this must not include
 						kernel stack at top */
 
@@ -95,68 +72,71 @@ void __init mem_init(void)
 	end_mem &= PAGE_MASK;
 	high_memory = __va(end_mem);
 
-#ifdef CONFIG_MMU
-	max_mapnr = ((unsigned long)end_mem) >> PAGE_SHIFT;
-#else
-	max_mapnr = (((unsigned long)high_memory) - PAGE_OFFSET) >> PAGE_SHIFT;
-#endif /* CONFIG_MMU */
-	num_physpages = max_mapnr;
-	pr_debug("We have %ld pages of RAM\n", num_physpages);
-
 	/* this will put all memory onto the freelists */
-	totalram_pages = free_all_bootmem();
-
-	codek = (_etext - _stext) >> 10;
-	datak = (_end - _etext) >> 10;
-
-	pr_info("Memory available: %luk/%luk RAM (%dk kernel code, %dk data)\n",
-		nr_free_pages() << (PAGE_SHIFT - 10),
-		(unsigned long)((_end - _stext) >> 10),
-		codek, datak);
+	free_all_bootmem();
+	mem_init_print_info(NULL);
 }
 
-#ifdef CONFIG_MMU
 void __init mmu_init(void)
 {
 	flush_tlb_all();
-}
-#endif
-
-static void __init free_init_pages(const char *what, unsigned long start,
-					unsigned long end)
-{
-	unsigned long addr;
-
-	/* next to check that the page we free is not a partial page */
-	for (addr = start; addr + PAGE_SIZE <= end; addr += PAGE_SIZE) {
-		ClearPageReserved(virt_to_page(addr));
-		init_page_count(virt_to_page(addr));
-		free_page(addr);
-		totalram_pages++;
-	}
-
-	pr_notice("Freeing %s: %ldk freed (0x%lx - 0x%lx)\n",
-		what, (end - start) >> 10, start, end);
 }
 
 #ifdef CONFIG_BLK_DEV_INITRD
 void __init free_initrd_mem(unsigned long start, unsigned long end)
 {
-	free_init_pages("initrd memory", start, end);
+	free_reserved_area((void *)start, (void *)end, -1, "initrd");
 }
 #endif
 
 void __init_refok free_initmem(void)
 {
-	free_init_pages("unused kernel memory",
-			(unsigned long)(&__init_begin),
-			(unsigned long)(&__init_end));
+	free_initmem_default(-1);
 }
-
-#ifdef CONFIG_MMU
 
 #define __page_aligned(order) __aligned(PAGE_SIZE << (order))
 pgd_t swapper_pg_dir[PTRS_PER_PGD] __page_aligned(PGD_ORDER);
 pte_t invalid_pte_table[PTRS_PER_PTE] __page_aligned(PTE_ORDER);
+static struct page *kuser_page[1];
 
-#endif /* CONFIG_MMU */
+static int alloc_kuser_page(void)
+{
+	extern char __kuser_helper_start[], __kuser_helper_end[];
+	int kuser_sz = __kuser_helper_end - __kuser_helper_start;
+	unsigned long vpage;
+
+	vpage = get_zeroed_page(GFP_ATOMIC);
+	if (!vpage)
+		return -ENOMEM;
+
+	/* Copy kuser helpers */
+	memcpy((void *)vpage, __kuser_helper_start, kuser_sz);
+
+	flush_icache_range(vpage, vpage + KUSER_SIZE);
+	kuser_page[0] = virt_to_page(vpage);
+
+	return 0;
+}
+arch_initcall(alloc_kuser_page);
+
+int arch_setup_additional_pages(struct linux_binprm *bprm, int uses_interp)
+{
+	struct mm_struct *mm = current->mm;
+	int ret;
+
+	down_write(&mm->mmap_sem);
+
+	/* Map kuser helpers to user space address */
+	ret = install_special_mapping(mm, KUSER_BASE, KUSER_SIZE,
+				      VM_READ | VM_EXEC | VM_MAYREAD |
+				      VM_MAYEXEC, kuser_page);
+
+	up_write(&mm->mmap_sem);
+
+	return ret;
+}
+
+const char *arch_vma_name(struct vm_area_struct *vma)
+{
+	return (vma->vm_start == KUSER_BASE) ? "[kuser]" : NULL;
+}

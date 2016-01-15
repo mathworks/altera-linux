@@ -17,12 +17,36 @@
  * published by the Free Software Foundation.
 */
 
-/include/ "exynos4x12.dtsi"
+#include "exynos4x12.dtsi"
 
 / {
-	compatible = "samsung,exynos4212";
+	compatible = "samsung,exynos4212", "samsung,exynos4";
 
-	gic:interrupt-controller@10490000 {
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		cpu0: cpu@A00 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a9";
+			reg = <0xA00>;
+			cooling-min-level = <13>;
+			cooling-max-level = <7>;
+			#cooling-cells = <2>; /* min followed by max */
+		};
+
+		cpu@A01 {
+			device_type = "cpu";
+			compatible = "arm,cortex-a9";
+			reg = <0xA01>;
+		};
+	};
+
+	combiner: interrupt-controller@10440000 {
+		samsung,combiner-nr = <18>;
+	};
+
+	gic: interrupt-controller@10490000 {
 		cpu-offset = <0x8000>;
 	};
 };

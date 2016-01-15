@@ -21,15 +21,13 @@
 #include <asm/mach-types.h>
 #include <mach/hardware.h>
 
-#include "ep93xx-pcm.h"
-
 static struct snd_soc_dai_link simone_dai = {
 	.name		= "AC97",
 	.stream_name	= "AC97 HiFi",
 	.cpu_dai_name	= "ep93xx-ac97",
 	.codec_dai_name	= "ac97-hifi",
 	.codec_name	= "ac97-codec",
-	.platform_name	= "ep93xx-pcm-audio",
+	.platform_name	= "ep93xx-ac97",
 };
 
 static struct snd_soc_card snd_soc_simone = {
@@ -76,7 +74,6 @@ static int simone_remove(struct platform_device *pdev)
 static struct platform_driver simone_driver = {
 	.driver		= {
 		.name	= "simone-audio",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= simone_probe,
 	.remove		= simone_remove,

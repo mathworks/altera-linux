@@ -98,7 +98,7 @@ finish_move:
 	bgt	r1, r0, 1b
 	flushp
 	/* jump to start real kernel */
-	movia	r1, (CONFIG_MEM_BASE | CONFIG_KERNEL_REGION_BASE)
+	movia	r1, (CONFIG_NIOS2_MEM_BASE | CONFIG_NIOS2_KERNEL_REGION_BASE)
 	jmp	r1
 
 	.balign 512

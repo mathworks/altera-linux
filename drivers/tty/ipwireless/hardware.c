@@ -378,9 +378,9 @@ static void swap_packet_bitfield_to_le(unsigned char *data)
 	/*
 	 * transform bits from aa.bbb.ccc to ccc.bbb.aa
 	 */
-	ret |= tmp & 0xc0 >> 6;
-	ret |= tmp & 0x38 >> 1;
-	ret |= tmp & 0x07 << 5;
+	ret |= (tmp & 0xc0) >> 6;
+	ret |= (tmp & 0x38) >> 1;
+	ret |= (tmp & 0x07) << 5;
 	*data = ret & 0xff;
 #endif
 }
@@ -393,9 +393,9 @@ static void swap_packet_bitfield_from_le(unsigned char *data)
 	/*
 	 * transform bits from ccc.bbb.aa to aa.bbb.ccc
 	 */
-	ret |= tmp & 0xe0 >> 5;
-	ret |= tmp & 0x1c << 1;
-	ret |= tmp & 0x03 << 6;
+	ret |= (tmp & 0xe0) >> 5;
+	ret |= (tmp & 0x1c) << 1;
+	ret |= (tmp & 0x03) << 6;
 	*data = ret & 0xff;
 #endif
 }
@@ -1732,8 +1732,7 @@ void ipwireless_hardware_free(struct ipw_hardware *hw)
 	flush_work(&hw->work_rx);
 
 	for (i = 0; i < NL_NUM_OF_ADDRESSES; i++)
-		if (hw->packet_assembler[i] != NULL)
-			kfree(hw->packet_assembler[i]);
+		kfree(hw->packet_assembler[i]);
 
 	for (i = 0; i < NL_NUM_OF_PRIORITIES; i++)
 		list_for_each_entry_safe(tp, tq, &hw->tx_queue[i], queue) {

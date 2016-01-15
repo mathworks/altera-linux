@@ -25,13 +25,14 @@ static inline u32 bcma_cc_write32_masked(struct bcma_drv_cc *cc, u16 offset,
 	return value;
 }
 
-static u32 bcma_chipco_get_alp_clock(struct bcma_drv_cc *cc)
+u32 bcma_chipco_get_alp_clock(struct bcma_drv_cc *cc)
 {
 	if (cc->capabilities & BCMA_CC_CAP_PMU)
 		return bcma_pmu_get_alp_clock(cc);
 
 	return 20000000;
 }
+EXPORT_SYMBOL_GPL(bcma_chipco_get_alp_clock);
 
 static u32 bcma_chipco_watchdog_get_max_timer(struct bcma_drv_cc *cc)
 {
@@ -78,7 +79,9 @@ static int bcma_chipco_watchdog_ticks_per_ms(struct bcma_drv_cc *cc)
 
 	if (cc->capabilities & BCMA_CC_CAP_PMU) {
 		if (bus->chipinfo.id == BCMA_CHIP_ID_BCM4706)
-			/* 4706 CC and PMU watchdogs are clocked at 1/4 of ALP clock */
+			/* 4706 CC and PMU watchdogs are clocked at 1/4 of ALP
+			 * clock
+			 */
 			return bcma_chipco_get_alp_clock(cc) / 4000;
 		else
 			/* based on 32KHz ILP clock */
@@ -96,7 +99,8 @@ int bcma_chipco_watchdog_register(struct bcma_drv_cc *cc)
 	wdt.driver_data = cc;
 	wdt.timer_set = bcma_chipco_watchdog_timer_set_wdt;
 	wdt.timer_set_ms = bcma_chipco_watchdog_timer_set_ms_wdt;
-	wdt.max_timer_ms = bcma_chipco_watchdog_get_max_timer(cc) / cc->ticks_per_ms;
+	wdt.max_timer_ms =
+		bcma_chipco_watchdog_get_max_timer(cc) / cc->ticks_per_ms;
 
 	pdev = platform_device_register_data(NULL, "bcm47xx-wdt",
 					     cc->core->bus->num, &wdt,
@@ -139,8 +143,15 @@ void bcma_core_chipcommon_init(struct bcma_drv_cc *cc)
 	bcma_core_chipcommon_early_init(cc);
 
 	if (cc->core->id.rev >= 20) {
-		bcma_cc_write32(cc, BCMA_CC_GPIOPULLUP, 0);
-		bcma_cc_write32(cc, BCMA_CC_GPIOPULLDOWN, 0);
+		u32 pullup = 0, pulldown = 0;
+
+		if (cc->core->bus->chipinfo.id == BCMA_CHIP_ID_BCM43142) {
+			pullup = 0x402e0;
+			pulldown = 0x20500;
+		}
+
+		bcma_cc_write32(cc, BCMA_CC_GPIOPULLUP, pullup);
+		bcma_cc_write32(cc, BCMA_CC_GPIOPULLDOWN, pulldown);
 	}
 
 	if (cc->capabilities & BCMA_CC_CAP_PMU)
@@ -167,7 +178,6 @@ void bcma_core_chipcommon_init(struct bcma_drv_cc *cc)
 u32 bcma_chipco_watchdog_timer_set(struct bcma_drv_cc *cc, u32 ticks)
 {
 	u32 maxt;
-	enum bcma_clkmode clkmode;
 
 	maxt = bcma_chipco_watchdog_get_max_timer(cc);
 	if (cc->capabilities & BCMA_CC_CAP_PMU) {
@@ -177,8 +187,13 @@ u32 bcma_chipco_watchdog_timer_set(struct bcma_drv_cc *cc, u32 ticks)
 			ticks = maxt;
 		bcma_cc_write32(cc, BCMA_CC_PMU_WATCHDOG, ticks);
 	} else {
-		clkmode = ticks ? BCMA_CLKMODE_FAST : BCMA_CLKMODE_DYNAMIC;
-		bcma_core_set_clockmode(cc->core, clkmode);
+		struct bcma_bus *bus = cc->core->bus;
+
+		if (bus->chipinfo.id != BCMA_CHIP_ID_BCM4707 &&
+		    bus->chipinfo.id != BCMA_CHIP_ID_BCM53018)
+			bcma_core_set_clockmode(cc->core,
+						ticks ? BCMA_CLKMODE_FAST : BCMA_CLKMODE_DYNAMIC);
+
 		if (ticks > maxt)
 			ticks = maxt;
 		/* instant NMI */
@@ -213,6 +228,7 @@ u32 bcma_chipco_gpio_out(struct bcma_drv_cc *cc, u32 mask, u32 value)
 
 	return res;
 }
+EXPORT_SYMBOL_GPL(bcma_chipco_gpio_out);
 
 u32 bcma_chipco_gpio_outen(struct bcma_drv_cc *cc, u32 mask, u32 value)
 {
@@ -225,6 +241,7 @@ u32 bcma_chipco_gpio_outen(struct bcma_drv_cc *cc, u32 mask, u32 value)
 
 	return res;
 }
+EXPORT_SYMBOL_GPL(bcma_chipco_gpio_outen);
 
 /*
  * If the bit is set to 0, chipcommon controlls this GPIO,
@@ -325,11 +342,12 @@ void bcma_chipco_serial_init(struct bcma_drv_cc *cc)
 				       | BCMA_CC_CORECTL_UARTCLKEN);
 		}
 	} else {
-		bcma_err(cc->core->bus, "serial not supported on this device ccrev: 0x%x\n", ccrev);
+		bcma_err(cc->core->bus, "serial not supported on this device ccrev: 0x%x\n",
+			 ccrev);
 		return;
 	}
 
-	irq = bcma_core_irq(cc->core);
+	irq = bcma_core_irq(cc->core, 0);
 
 	/* Determine the registers of the UARTs */
 	cc->nr_serial_ports = (cc->capabilities & BCMA_CC_CAP_NRUART);

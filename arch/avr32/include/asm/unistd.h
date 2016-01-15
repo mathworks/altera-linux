@@ -10,7 +10,7 @@
 
 #include <uapi/asm/unistd.h>
 
-#define NR_syscalls		284
+#define NR_syscalls		321
 
 /* Old stuff */
 #define __IGNORE_uselib
@@ -40,13 +40,5 @@
 #define __ARCH_WANT_SYS_FORK
 #define __ARCH_WANT_SYS_VFORK
 #define __ARCH_WANT_SYS_CLONE
-
-/*
- * "Conditional" syscalls
- *
- * What we want is __attribute__((weak,alias("sys_ni_syscall"))),
- * but it doesn't work on all toolchains, so we just do it by hand
- */
-#define cond_syscall(x) asm(".weak\t" #x "\n\t.set\t" #x ",sys_ni_syscall");
 
 #endif /* __ASM_AVR32_UNISTD_H */

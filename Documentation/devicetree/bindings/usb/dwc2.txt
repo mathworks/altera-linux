@@ -1,36 +1,38 @@
-synopsys DWC2 CORE
-
-DWC2 - USB2 CONTROLLER
+Platform DesignWare HS OTG USB 2.0 controller
+-----------------------------------------------------
 
 Required properties:
-- compatible: must be "snps,dwc-otg"
-- reg : Address and length of the register set for the device
-- interrupts: Interrupts used by the dwc2 controller.
-- dm-mask : DMA bit mask
+- compatible : One of:
+  - brcm,bcm2835-usb: The DWC2 USB controller instance in the BCM2835 SoC.
+  - rockchip,rk3066-usb: The DWC2 USB controller instance in the rk3066 Soc;
+  - "rockchip,rk3188-usb", "rockchip,rk3066-usb", "snps,dwc2": for rk3188 Soc;
+  - "rockchip,rk3288-usb", "rockchip,rk3066-usb", "snps,dwc2": for rk3288 Soc;
+  - snps,dwc2: A generic DWC2 USB controller with default parameters.
+- reg : Should contain 1 register range (address and length)
+- interrupts : Should contain 1 interrupt
+- clocks: clock provider specifier
+- clock-names: shall be "otg"
+Refer to clk/clock-bindings.txt for generic clock consumer properties
 
 Optional properties:
-- host-rx-fifo-size : RX FIFO size for host
-- dev-rx-fifo-size : RX FIFO size for device
-- dev-nperio-tx-fifo-size : Number of 4-byte words in the non-periodic
-		Tx FIFO in device mode when dynamic FIFO sizing is enabled.
-		16 to 32768 (default 1024)
-- dev-perio-tx-fifo-size : Number of 4-byte words in each of the periodic Tx
-		FIFOs in device mode when dynamic FIFO sizing is enabled.
-		4 to 768 (default 256)
+- phys: phy provider specifier
+- phy-names: shall be "usb2-phy"
+Refer to phy/phy-bindings.txt for generic phy consumer properties
+- dr_mode: shall be one of "host", "peripheral" and "otg"
+  Refer to usb/generic.txt
+- g-use-dma: enable dma usage in gadget driver.
+- g-rx-fifo-size: size of rx fifo size in gadget mode.
+- g-np-tx-fifo-size: size of non-periodic tx fifo size in gadget mode.
+- g-tx-fifo-size: size of periodic tx fifo per endpoint (except ep0) in gadget mode.
 
-This is usually a subnode to DWC3 glue to which it is connected.
+Example:
 
-usb0: usb@ffb00000 {
-	compatible = "snps,dwc-otg";
-	reg = <0xffb00000 0xffff>;
-	interrupts = <0 125 4>;
-	dma-mask = <0xffffffff>;
-	host-rx-fifo-size = <512>;
-	dev-rx-fifo-size = <512>;
-	dev-nperio-tx-fifo-size = <4096>;
-	dev-perio-tx-fifo-size = <512 512 512 512 512 512
-		512 512 512 512 512 512 512 512 512>;
-	dev-tx-fifo-size = <512 512 512 512 512 512
-		512 512 512 512 512 512 512 512 512>;
-	status = "disabled";
-	};
+        usb@101c0000 {
+                compatible = "ralink,rt3050-usb, snps,dwc2";
+                reg = <0x101c0000 40000>;
+                interrupts = <18>;
+		clocks = <&usb_otg_ahb_clk>;
+		clock-names = "otg";
+		phys = <&usbphy>;
+		phy-names = "usb2-phy";
+        };

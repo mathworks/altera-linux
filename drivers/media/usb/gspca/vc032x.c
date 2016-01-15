@@ -68,12 +68,12 @@ enum sensors {
 
 static const struct v4l2_pix_format vc0321_mode[] = {
 	{320, 240, V4L2_PIX_FMT_YVYU, V4L2_FIELD_NONE,
-		.bytesperline = 320,
+		.bytesperline = 320 * 2,
 		.sizeimage = 320 * 240 * 2,
 		.colorspace = V4L2_COLORSPACE_SRGB,
 		.priv = 1},
 	{640, 480, V4L2_PIX_FMT_YVYU, V4L2_FIELD_NONE,
-		.bytesperline = 640,
+		.bytesperline = 640 * 2,
 		.sizeimage = 640 * 480 * 2,
 		.colorspace = V4L2_COLORSPACE_SRGB,
 		.priv = 0},
@@ -97,17 +97,17 @@ static const struct v4l2_pix_format vc0323_mode[] = {
 };
 static const struct v4l2_pix_format bi_mode[] = {
 	{320, 240, V4L2_PIX_FMT_YUYV, V4L2_FIELD_NONE,
-		.bytesperline = 320,
+		.bytesperline = 320 * 2,
 		.sizeimage = 320 * 240 * 2,
 		.colorspace = V4L2_COLORSPACE_SRGB,
 		.priv = 2},
 	{640, 480, V4L2_PIX_FMT_YUYV, V4L2_FIELD_NONE,
-		.bytesperline = 640,
+		.bytesperline = 640 * 2,
 		.sizeimage = 640 * 480 * 2,
 		.colorspace = V4L2_COLORSPACE_SRGB,
 		.priv = 1},
 	{1280, 1024, V4L2_PIX_FMT_YUYV, V4L2_FIELD_NONE,
-		.bytesperline = 1280,
+		.bytesperline = 1280 * 2,
 		.sizeimage = 1280 * 1024 * 2,
 		.colorspace = V4L2_COLORSPACE_SRGB,
 		.priv = 0},
@@ -2927,7 +2927,6 @@ static void reg_r(struct gspca_dev *gspca_dev,
 		  u16 len)
 {
 	reg_r_i(gspca_dev, req, index, len);
-#ifdef GSPCA_DEBUG
 	if (gspca_dev->usb_err < 0)
 		return;
 	if (len == 1)
@@ -2936,7 +2935,6 @@ static void reg_r(struct gspca_dev *gspca_dev,
 	else
 		PDEBUG(D_USBI, "GET %02x 0001 %04x %*ph",
 				req, index, 3, gspca_dev->usb_buf);
-#endif
 }
 
 static void reg_w_i(struct gspca_dev *gspca_dev,
@@ -2964,11 +2962,9 @@ static void reg_w(struct gspca_dev *gspca_dev,
 			    u16 value,
 			    u16 index)
 {
-#ifdef GSPCA_DEBUG
 	if (gspca_dev->usb_err < 0)
 		return;
 	PDEBUG(D_USBO, "SET %02x %04x %04x", req, value, index);
-#endif
 	reg_w_i(gspca_dev, req, value, index);
 }
 
@@ -3044,8 +3040,7 @@ static int vc032x_probe_sensor(struct gspca_dev *gspca_dev)
 		if (value == 0 && ptsensor_info->IdAdd == 0x82)
 			value = read_sensor_register(gspca_dev, 0x83);
 		if (value != 0) {
-			PDEBUG(D_ERR|D_PROBE, "Sensor ID %04x (%d)",
-				value, i);
+			PDEBUG(D_PROBE, "Sensor ID %04x (%d)", value, i);
 			if (value == ptsensor_info->VpId)
 				return ptsensor_info->sensorId;
 
@@ -3069,14 +3064,12 @@ static void i2c_write(struct gspca_dev *gspca_dev,
 {
 	int retry;
 
-#ifdef GSPCA_DEBUG
 	if (gspca_dev->usb_err < 0)
 		return;
 	if (size == 1)
 		PDEBUG(D_USBO, "i2c_w %02x %02x", reg, *val);
 	else
 		PDEBUG(D_USBO, "i2c_w %02x %02x%02x", reg, *val, val[1]);
-#endif
 	reg_r_i(gspca_dev, 0xa1, 0xb33f, 1);
 /*fixme:should check if (!(gspca_dev->usb_buf[0] & 0x02)) error*/
 	reg_w_i(gspca_dev, 0xa0, size, 0xb334);

@@ -14,25 +14,15 @@
 # Nios2 port by Wind River Systems Inc trough:
 #   fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
 
-ifeq ($(CONFIG_MMU),y)
+KBUILD_DEFCONFIG := 3c120_defconfig
+
 UTS_SYSNAME = Linux
-else
-UTS_SYSNAME = uClinux
-MMU := -nommu
-KBUILD_CFLAGS += -D__uClinux__
-KBUILD_AFLAGS += -D__uClinux__
-endif
 
 export MMU
 
-cflags-y :=
-LDFLAGS		:=
-LDFLAGS_vmlinux	:=
-
 LIBGCC		:= $(shell $(CC) $(KBUILD_CFLAGS) -print-libgcc-file-name)
 
-KBUILD_AFLAGS += $(cflags-y)
-KBUILD_CFLAGS += -pipe -D__linux__ -D__ELF__ $(cflags-y)
+KBUILD_CFLAGS += -pipe -D__linux__ -D__ELF__
 KBUILD_CFLAGS += $(if $(CONFIG_NIOS2_HW_MUL_SUPPORT),-mhw-mul,-mno-hw-mul)
 KBUILD_CFLAGS += $(if $(CONFIG_NIOS2_HW_MULX_SUPPORT),-mhw-mulx,-mno-hw-mulx)
 KBUILD_CFLAGS += $(if $(CONFIG_NIOS2_HW_DIV_SUPPORT),-mhw-div,-mno-hw-div)
@@ -43,47 +33,43 @@ KBUILD_CFLAGS += -DUTS_SYSNAME=\"$(UTS_SYSNAME)\"
 KBUILD_CFLAGS += -fno-builtin
 KBUILD_CFLAGS += -G 0
 
-LDFLAGS += -mnios2elf
-
 head-y		:= arch/nios2/kernel/head.o
 libs-y		+= arch/nios2/lib/ $(LIBGCC)
 core-y		+= arch/nios2/kernel/ arch/nios2/mm/
 core-y		+= arch/nios2/platform/
 
-drivers-$(CONFIG_OPROFILE) += arch/$(ARCH)/oprofile/
-
 INSTALL_PATH ?= /tftpboot
-boot := arch/$(ARCH)/boot
+nios2-boot := arch/$(ARCH)/boot
 BOOT_TARGETS = vmImage zImage
 PHONY += $(BOOT_TARGETS) install
-KBUILD_IMAGE := $(boot)/vmImage
+KBUILD_IMAGE := $(nios2-boot)/vmImage
 
-ifneq ($(CONFIG_DTB_SOURCE),"")
-	core-y	+= $(boot)/
+ifneq ($(CONFIG_NIOS2_DTB_SOURCE),"")
+	core-y	+= $(nios2-boot)/
 endif
 
 all: vmImage
 
 archclean:
-	$(Q)$(MAKE) $(clean)=$(boot)
+	$(Q)$(MAKE) $(clean)=$(nios2-boot)
 
 %.dtb:
-	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+	$(Q)$(MAKE) $(build)=$(nios2-boot) $(nios2-boot)/$@
 
 dtbs:
-	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+	$(Q)$(MAKE) $(build)=$(nios2-boot) $(nios2-boot)/$@
 
 $(BOOT_TARGETS): vmlinux
-	$(Q)$(MAKE) $(build)=$(boot) $(boot)/$@
+	$(Q)$(MAKE) $(build)=$(nios2-boot) $(nios2-boot)/$@
 
 install:
-	$(Q)$(MAKE) $(build)=$(boot) BOOTIMAGE=$(KBUILD_IMAGE) install
+	$(Q)$(MAKE) $(build)=$(nios2-boot) BOOTIMAGE=$(KBUILD_IMAGE) install
 
 define archhelp
-  echo  '* vmImage         - Kernel-only image for U-Boot (arch/$(ARCH)/boot/vmImage)'
+  echo  '* vmImage         - Kernel-only image for U-Boot ($(KBUILD_IMAGE))'
   echo  '  install         - Install kernel using'
-  echo  '                     (your) ~/bin/$(CROSS_COMPILE)installkernel or'
-  echo  '                     (distribution) PATH: $(CROSS_COMPILE)installkernel or'
+  echo  '                     (your) ~/bin/$(INSTALLKERNEL) or'
+  echo  '                     (distribution) /sbin/$(INSTALLKERNEL) or'
   echo  '                     install to $$(INSTALL_PATH)'
   echo  '  dtbs            - Build device tree blobs for enabled boards'
 endef

@@ -311,6 +311,19 @@ static struct xfrm_algo_desc aalg_list[] = {
 		.sadb_alg_maxbits = 128
 	}
 },
+{
+	/* rfc4494 */
+	.name = "cmac(aes)",
+
+	.uinfo = {
+		.auth = {
+			.icv_truncbits = 96,
+			.icv_fullbits = 128,
+		}
+	},
+
+	.pfkey_supported = 0,
+},
 };
 
 static struct xfrm_algo_desc ealg_list[] = {
@@ -548,11 +561,6 @@ static struct xfrm_algo_desc calg_list[] = {
 },
 };
 
-static inline int aead_entries(void)
-{
-	return ARRAY_SIZE(aead_list);
-}
-
 static inline int aalg_entries(void)
 {
 	return ARRAY_SIZE(aalg_list);
@@ -788,18 +796,5 @@ int xfrm_count_pfkey_enc_supported(void)
 	return n;
 }
 EXPORT_SYMBOL_GPL(xfrm_count_pfkey_enc_supported);
-
-#if defined(CONFIG_INET_ESP) || defined(CONFIG_INET_ESP_MODULE) || defined(CONFIG_INET6_ESP) || defined(CONFIG_INET6_ESP_MODULE)
-
-void *pskb_put(struct sk_buff *skb, struct sk_buff *tail, int len)
-{
-	if (tail != skb) {
-		skb->data_len += len;
-		skb->len += len;
-	}
-	return skb_put(tail, len);
-}
-EXPORT_SYMBOL_GPL(pskb_put);
-#endif
 
 MODULE_LICENSE("GPL");

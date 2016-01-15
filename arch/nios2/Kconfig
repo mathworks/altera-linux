@@ -1,26 +1,23 @@
 config NIOS2
 	def_bool y
-	select OF
-	select OF_EARLY_FLATTREE
-	select HAVE_OPROFILE
-	select HAVE_ARCH_KGDB
-	select USB_ARCH_HAS_HCD if USB_SUPPORT
 	select ARCH_WANT_OPTIONAL_GPIOLIB
-	select HAVE_GENERIC_HARDIRQS
+	select CLKSRC_OF
+	select GENERIC_ATOMIC64
+	select GENERIC_CLOCKEVENTS
+	select GENERIC_CPU_DEVICES
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
-	select GENERIC_CPU_DEVICES
-	select GENERIC_ATOMIC64
-	select MODULES_USE_ELF_RELA
+	select HAVE_ARCH_TRACEHOOK
+	select HAVE_ARCH_KGDB
 	select IRQ_DOMAIN
+	select MODULES_USE_ELF_RELA
+	select OF
+	select OF_EARLY_FLATTREE
 	select SOC_BUS
-	select OLD_SIGACTION
-	select OLD_SIGSUSPEND
+	select SPARSE_IRQ
+	select USB_ARCH_HAS_HCD if USB_SUPPORT
 
 config GENERIC_CSUM
-	def_bool y
-
-config GENERIC_FIND_NEXT_BIT
 	def_bool y
 
 config GENERIC_HWEIGHT
@@ -29,16 +26,10 @@ config GENERIC_HWEIGHT
 config GENERIC_CALIBRATE_DELAY
 	def_bool y
 
-config GENERIC_GPIO
-	bool
-
-config NO_IOPORT
+config NO_IOPORT_MAP
 	def_bool y
 
 config HAS_DMA
-	def_bool y
-
-config ZONE_DMA
 	def_bool y
 
 config FPU
@@ -62,8 +53,6 @@ source "kernel/Kconfig.preempt"
 source "kernel/Kconfig.freezer"
 
 source "kernel/Kconfig.hz"
-
-source "kernel/time/Kconfig"
 
 source "mm/Kconfig"
 
@@ -89,16 +78,15 @@ source "arch/nios2/platform/Kconfig.platform"
 menu "Processor type and features"
 
 config MMU
-	bool "MMU support"
-	default y
-	help
-	  This option enables support for the Nios II MMU. Only enable this
-	  option if your design contains a Nios II/f core with MMU enabled.
+	def_bool y
 
-config ALIGNMENT_TRAP
+config NR_CPUS
+	int
+	default "1"
+
+config NIOS2_ALIGNMENT_TRAP
 	bool "Catch alignment trap"
 	default y
-	depends on MMU
 	help
 	  Nios II CPUs cannot fetch/store data which is not bus aligned,
 	  i.e., a 2 or 4 byte fetch must start at an address divisible by
@@ -130,23 +118,24 @@ config CMDLINE_FORCE
 	  Set this to have arguments from the default kernel command string
 	  override those passed by the boot loader.
 
-config CMDLINE_IGNORE_DTB
+config NIOS2_CMDLINE_IGNORE_DTB
 	bool "Ignore kernel command string from DTB"
+	depends on CMDLINE_BOOL
 	depends on !CMDLINE_FORCE
 	default y
 	help
 	  Set this to ignore the bootargs property from the devicetree's
 	  chosen node and fall back to CMDLINE if nothing is passed.
 
-config PASS_CMDLINE
+config NIOS2_PASS_CMDLINE
 	bool "Passed kernel command line from u-boot"
 	default n
 	help
 	  Use bootargs env variable from u-boot for kernel command line.
 	  will override "Default kernel command string".
-          Say N if you are unsure.
+	  Say N if you are unsure.
 
-config BOOT_LINK_OFFSET
+config NIOS2_BOOT_LINK_OFFSET
 	hex "Link address offset for booting"
 	default "0x00500000"
 	help
@@ -165,7 +154,7 @@ config ADVANCED_OPTIONS
 comment "Default settings for advanced configuration options are used"
 	depends on !ADVANCED_OPTIONS
 
-config KERNEL_MMU_REGION_BASE_BOOL
+config NIOS2_KERNEL_MMU_REGION_BASE_BOOL
 	bool "Set custom kernel MMU region base address"
 	depends on ADVANCED_OPTIONS
 	help
@@ -173,14 +162,13 @@ config KERNEL_MMU_REGION_BASE_BOOL
 
 	  Say N here unless you know what you are doing.
 
-config KERNEL_MMU_REGION_BASE
-	hex "Virtual base address of the kernel MMU region " if KERNEL_MMU_REGION_BASE_BOOL
-	default "0x80000000" if MMU
-	default "0x00000000" if !MMU
+config NIOS2_KERNEL_MMU_REGION_BASE
+	hex "Virtual base address of the kernel MMU region " if NIOS2_KERNEL_MMU_REGION_BASE_BOOL
+	default "0x80000000"
 	help
 	  This option allows you to set the virtual base address of the kernel MMU region.
 
-config KERNEL_REGION_BASE_BOOL
+config NIOS2_KERNEL_REGION_BASE_BOOL
 	bool "Set custom kernel region base address"
 	depends on ADVANCED_OPTIONS
 	help
@@ -188,12 +176,11 @@ config KERNEL_REGION_BASE_BOOL
 
 	  Say N here unless you know what you are doing.
 
-config KERNEL_REGION_BASE
-	hex "Virtual base address of the kernel region " if KERNEL_REGION_BASE_BOOL
-	default "0xc0000000" if MMU
-	default "0x00000000" if !MMU
+config NIOS2_KERNEL_REGION_BASE
+	hex "Virtual base address of the kernel region " if NIOS2_KERNEL_REGION_BASE_BOOL
+	default "0xc0000000"
 
-config IO_REGION_BASE_BOOL
+config NIOS2_IO_REGION_BASE_BOOL
 	bool "Set custom I/O region base address"
 	depends on ADVANCED_OPTIONS
 	help
@@ -201,10 +188,9 @@ config IO_REGION_BASE_BOOL
 
 	  Say N here unless you know what you are doing.
 
-config IO_REGION_BASE
-	hex "Virtual base address of the I/O region " if IO_REGION_BASE_BOOL
-	default "0xe0000000" if MMU
-	default "0x80000000" if !MMU
+config NIOS2_IO_REGION_BASE
+	hex "Virtual base address of the I/O region" if NIOS2_IO_REGION_BASE_BOOL
+	default "0xe0000000"
 
 endmenu
 

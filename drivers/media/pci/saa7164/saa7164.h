@@ -63,7 +63,7 @@
 #include <dmxdev.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-ioctl.h>
-#include <media/v4l2-chip-ident.h>
+#include <media/v4l2-device.h>
 
 #include "saa7164-reg.h"
 #include "saa7164-types.h"
@@ -313,13 +313,13 @@ struct saa7164_buffer {
 
 	/* A block of page align PCI memory */
 	u32 pci_size;	/* PCI allocation size in bytes */
-	u64 __iomem *cpu;	/* Virtual address */
+	u64 *cpu;	/* Virtual address */
 	dma_addr_t dma;	/* Physical address */
 	u32 crc;	/* Checksum for the entire buffer data */
 
 	/* A page table that splits the block into a number of entries */
 	u32 pt_size;		/* PCI allocation size in bytes */
-	u64 __iomem *pt_cpu;		/* Virtual address */
+	u64 *pt_cpu;		/* Virtual address */
 	dma_addr_t pt_dma;	/* Physical address */
 
 	/* Encoder fops */
@@ -376,6 +376,7 @@ struct saa7164_port {
 	/* Encoder */
 	/* Defaults established in saa7164-encoder.c */
 	struct saa7164_tvnorm encodernorm;
+	v4l2_std_id std;
 	u32 height;
 	u32 width;
 	u32 freq;
@@ -426,6 +427,8 @@ struct saa7164_port {
 struct saa7164_dev {
 	struct list_head	devlist;
 	atomic_t		refcount;
+
+	struct v4l2_device v4l2_dev;
 
 	/* pci stuff */
 	struct pci_dev	*pci;

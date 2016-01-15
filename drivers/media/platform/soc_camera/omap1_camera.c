@@ -140,7 +140,7 @@
 /* buffer for one video frame */
 struct omap1_cam_buf {
 	struct videobuf_buffer		vb;
-	enum v4l2_mbus_pixelcode	code;
+	u32	code;
 	int				inwork;
 	struct scatterlist		*sgbuf;
 	int				sgcount;
@@ -150,7 +150,6 @@ struct omap1_cam_buf {
 
 struct omap1_cam_dev {
 	struct soc_camera_host		soc_host;
-	struct soc_camera_device	*icd;
 	struct clk			*clk;
 
 	unsigned int			irq;
@@ -564,7 +563,7 @@ static void videobuf_done(struct omap1_cam_dev *pcdev,
 {
 	struct omap1_cam_buf *buf = pcdev->active;
 	struct videobuf_buffer *vb;
-	struct device *dev = pcdev->icd->parent;
+	struct device *dev = pcdev->soc_host.icd->parent;
 
 	if (WARN_ON(!buf)) {
 		suspend_capture(pcdev);
@@ -790,7 +789,7 @@ out:
 static irqreturn_t cam_isr(int irq, void *data)
 {
 	struct omap1_cam_dev *pcdev = data;
-	struct device *dev = pcdev->icd->parent;
+	struct device *dev = pcdev->soc_host.icd->parent;
 	struct omap1_cam_buf *buf = pcdev->active;
 	u32 it_status;
 	unsigned long flags;
@@ -894,18 +893,28 @@ static void sensor_reset(struct omap1_cam_dev *pcdev, bool reset)
 		CAM_WRITE(pcdev, GPIO, !reset);
 }
 
+static int omap1_cam_add_device(struct soc_camera_device *icd)
+{
+	dev_dbg(icd->parent, "OMAP1 Camera driver attached to camera %d\n",
+			icd->devnum);
+
+	return 0;
+}
+
+static void omap1_cam_remove_device(struct soc_camera_device *icd)
+{
+	dev_dbg(icd->parent,
+		"OMAP1 Camera driver detached from camera %d\n", icd->devnum);
+}
+
 /*
  * The following two functions absolutely depend on the fact, that
  * there can be only one camera on OMAP1 camera sensor interface
  */
-static int omap1_cam_add_device(struct soc_camera_device *icd)
+static int omap1_cam_clock_start(struct soc_camera_host *ici)
 {
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
 	struct omap1_cam_dev *pcdev = ici->priv;
 	u32 ctrlclock;
-
-	if (pcdev->icd)
-		return -EBUSY;
 
 	clk_enable(pcdev->clk);
 
@@ -941,20 +950,13 @@ static int omap1_cam_add_device(struct soc_camera_device *icd)
 
 	sensor_reset(pcdev, false);
 
-	pcdev->icd = icd;
-
-	dev_dbg(icd->parent, "OMAP1 Camera driver attached to camera %d\n",
-			icd->devnum);
 	return 0;
 }
 
-static void omap1_cam_remove_device(struct soc_camera_device *icd)
+static void omap1_cam_clock_stop(struct soc_camera_host *ici)
 {
-	struct soc_camera_host *ici = to_soc_camera_host(icd->parent);
 	struct omap1_cam_dev *pcdev = ici->priv;
 	u32 ctrlclock;
-
-	BUG_ON(icd != pcdev->icd);
 
 	suspend_capture(pcdev);
 	disable_capture(pcdev);
@@ -973,17 +975,12 @@ static void omap1_cam_remove_device(struct soc_camera_device *icd)
 	CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock & ~MCLK_EN);
 
 	clk_disable(pcdev->clk);
-
-	pcdev->icd = NULL;
-
-	dev_dbg(icd->parent,
-		"OMAP1 Camera driver detached from camera %d\n", icd->devnum);
 }
 
 /* Duplicate standard formats based on host capability of byte swapping */
 static const struct soc_mbus_lookup omap1_cam_formats[] = {
 {
-	.code = V4L2_MBUS_FMT_UYVY8_2X8,
+	.code = MEDIA_BUS_FMT_UYVY8_2X8,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_YUYV,
 		.name			= "YUYV",
@@ -993,7 +990,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_VYUY8_2X8,
+	.code = MEDIA_BUS_FMT_VYUY8_2X8,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_YVYU,
 		.name			= "YVYU",
@@ -1003,7 +1000,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_YUYV8_2X8,
+	.code = MEDIA_BUS_FMT_YUYV8_2X8,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_UYVY,
 		.name			= "UYVY",
@@ -1013,7 +1010,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_YVYU8_2X8,
+	.code = MEDIA_BUS_FMT_YVYU8_2X8,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_VYUY,
 		.name			= "VYUY",
@@ -1023,7 +1020,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_RGB555_2X8_PADHI_BE,
+	.code = MEDIA_BUS_FMT_RGB555_2X8_PADHI_BE,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_RGB555,
 		.name			= "RGB555",
@@ -1033,7 +1030,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_RGB555_2X8_PADHI_LE,
+	.code = MEDIA_BUS_FMT_RGB555_2X8_PADHI_LE,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_RGB555X,
 		.name			= "RGB555X",
@@ -1043,7 +1040,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_RGB565_2X8_BE,
+	.code = MEDIA_BUS_FMT_RGB565_2X8_BE,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_RGB565,
 		.name			= "RGB565",
@@ -1053,7 +1050,7 @@ static const struct soc_mbus_lookup omap1_cam_formats[] = {
 		.layout			= SOC_MBUS_LAYOUT_PACKED,
 	},
 }, {
-	.code = V4L2_MBUS_FMT_RGB565_2X8_LE,
+	.code = MEDIA_BUS_FMT_RGB565_2X8_LE,
 	.fmt = {
 		.fourcc			= V4L2_PIX_FMT_RGB565X,
 		.name			= "RGB565X",
@@ -1071,7 +1068,7 @@ static int omap1_cam_get_formats(struct soc_camera_device *icd,
 	struct v4l2_subdev *sd = soc_camera_to_subdev(icd);
 	struct device *dev = icd->parent;
 	int formats = 0, ret;
-	enum v4l2_mbus_pixelcode code;
+	u32 code;
 	const struct soc_mbus_pixelfmt *fmt;
 
 	ret = v4l2_subdev_call(sd, video, enum_mbus_fmt, idx, &code);
@@ -1091,14 +1088,14 @@ static int omap1_cam_get_formats(struct soc_camera_device *icd,
 		return 0;
 
 	switch (code) {
-	case V4L2_MBUS_FMT_YUYV8_2X8:
-	case V4L2_MBUS_FMT_YVYU8_2X8:
-	case V4L2_MBUS_FMT_UYVY8_2X8:
-	case V4L2_MBUS_FMT_VYUY8_2X8:
-	case V4L2_MBUS_FMT_RGB555_2X8_PADHI_BE:
-	case V4L2_MBUS_FMT_RGB555_2X8_PADHI_LE:
-	case V4L2_MBUS_FMT_RGB565_2X8_BE:
-	case V4L2_MBUS_FMT_RGB565_2X8_LE:
+	case MEDIA_BUS_FMT_YUYV8_2X8:
+	case MEDIA_BUS_FMT_YVYU8_2X8:
+	case MEDIA_BUS_FMT_UYVY8_2X8:
+	case MEDIA_BUS_FMT_VYUY8_2X8:
+	case MEDIA_BUS_FMT_RGB555_2X8_PADHI_BE:
+	case MEDIA_BUS_FMT_RGB555_2X8_PADHI_LE:
+	case MEDIA_BUS_FMT_RGB565_2X8_BE:
+	case MEDIA_BUS_FMT_RGB565_2X8_LE:
 		formats++;
 		if (xlate) {
 			xlate->host_fmt	= soc_mbus_find_fmtdesc(code,
@@ -1430,7 +1427,8 @@ static int omap1_cam_querycap(struct soc_camera_host *ici,
 {
 	/* cap->name is set by the friendly caller:-> */
 	strlcpy(cap->card, "OMAP1 Camera", sizeof(cap->card));
-	cap->capabilities = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	cap->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
+	cap->capabilities = cap->device_caps | V4L2_CAP_DEVICE_CAPS;
 
 	return 0;
 }
@@ -1498,7 +1496,7 @@ static int omap1_cam_set_bus_param(struct soc_camera_device *icd)
 	if (ctrlclock & LCLK_EN)
 		CAM_WRITE(pcdev, CTRLCLOCK, ctrlclock);
 
-	/* select bus endianess */
+	/* select bus endianness */
 	xlate = soc_camera_xlate_by_fourcc(icd, pixfmt);
 	fmt = xlate->host_fmt;
 
@@ -1535,6 +1533,8 @@ static struct soc_camera_host_ops omap1_host_ops = {
 	.owner		= THIS_MODULE,
 	.add		= omap1_cam_add_device,
 	.remove		= omap1_cam_remove_device,
+	.clock_start	= omap1_cam_clock_start,
+	.clock_stop	= omap1_cam_clock_stop,
 	.get_formats	= omap1_cam_get_formats,
 	.set_crop	= omap1_cam_set_crop,
 	.set_fmt	= omap1_cam_set_fmt,
@@ -1546,7 +1546,7 @@ static struct soc_camera_host_ops omap1_host_ops = {
 	.poll		= omap1_cam_poll,
 };
 
-static int __init omap1_cam_probe(struct platform_device *pdev)
+static int omap1_cam_probe(struct platform_device *pdev)
 {
 	struct omap1_cam_dev *pcdev;
 	struct resource *res;
@@ -1677,7 +1677,7 @@ exit:
 	return err;
 }
 
-static int __exit omap1_cam_remove(struct platform_device *pdev)
+static int omap1_cam_remove(struct platform_device *pdev)
 {
 	struct soc_camera_host *soc_host = to_soc_camera_host(&pdev->dev);
 	struct omap1_cam_dev *pcdev = container_of(soc_host,
@@ -1709,7 +1709,7 @@ static struct platform_driver omap1_cam_driver = {
 		.name	= DRIVER_NAME,
 	},
 	.probe		= omap1_cam_probe,
-	.remove		= __exit_p(omap1_cam_remove),
+	.remove		= omap1_cam_remove,
 };
 
 module_platform_driver(omap1_cam_driver);

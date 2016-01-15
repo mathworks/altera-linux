@@ -73,6 +73,7 @@ static void _wordcopy_fwd_aligned(long int dstp, long int srcp, size_t len)
 {
 	while (len > 7) {
 		register op_t a0, a1, a2, a3, a4, a5, a6, a7;
+
 		a0 = ((op_t *) srcp)[0];
 		a1 = ((op_t *) srcp)[1];
 		a2 = ((op_t *) srcp)[2];
@@ -128,6 +129,7 @@ static void _wordcopy_fwd_dest_aligned(long int dstp, long int srcp,
 
 	while (len > 3) {
 		op_t a0, a1, a2, a3;
+
 		a0 = ((op_t *) srcp)[0];
 		a1 = ((op_t *) srcp)[1];
 		a2 = ((op_t *) srcp)[2];
@@ -144,6 +146,7 @@ static void _wordcopy_fwd_dest_aligned(long int dstp, long int srcp,
 	}
 	while (len > 0) {
 		register op_t a0;
+
 		a0 = ((op_t *) srcp)[0];
 		((op_t *) dstp)[0] = MERGE(ap, sh_1, a0, sh_2);
 

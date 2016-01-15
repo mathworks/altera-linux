@@ -37,6 +37,7 @@ static inline void arch_local_irq_restore(unsigned long flags)
 static inline void arch_local_irq_disable(void)
 {
 	unsigned long flags;
+
 	flags = arch_local_save_flags();
 	arch_local_irq_restore(flags & ~STATUS_PIE);
 }
@@ -44,6 +45,7 @@ static inline void arch_local_irq_disable(void)
 static inline void arch_local_irq_enable(void)
 {
 	unsigned long flags;
+
 	flags = arch_local_save_flags();
 	arch_local_irq_restore(flags | STATUS_PIE);
 }
@@ -61,6 +63,7 @@ static inline int arch_irqs_disabled(void)
 static inline unsigned long arch_local_irq_save(void)
 {
 	unsigned long flags;
+
 	flags = arch_local_save_flags();
 	arch_local_irq_restore(flags & ~STATUS_PIE);
 	return flags;

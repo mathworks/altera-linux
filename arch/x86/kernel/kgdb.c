@@ -39,7 +39,6 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/kgdb.h>
-#include <linux/init.h>
 #include <linux/smp.h>
 #include <linux/nmi.h>
 #include <linux/hw_breakpoint.h>
@@ -73,7 +72,7 @@ struct dbg_reg_def_t dbg_reg_def[DBG_MAX_REG_NUM] =
 	{ "bx", 8, offsetof(struct pt_regs, bx) },
 	{ "cx", 8, offsetof(struct pt_regs, cx) },
 	{ "dx", 8, offsetof(struct pt_regs, dx) },
-	{ "si", 8, offsetof(struct pt_regs, dx) },
+	{ "si", 8, offsetof(struct pt_regs, si) },
 	{ "di", 8, offsetof(struct pt_regs, di) },
 	{ "bp", 8, offsetof(struct pt_regs, bp) },
 	{ "sp", 8, offsetof(struct pt_regs, sp) },

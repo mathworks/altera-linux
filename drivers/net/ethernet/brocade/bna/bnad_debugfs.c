@@ -172,7 +172,7 @@ bnad_get_debug_drvinfo(struct bnad *bnad, void *buffer, u32 len)
 
 	/* Retrieve flash partition info */
 	fcomp.comp_status = 0;
-	init_completion(&fcomp.comp);
+	reinit_completion(&fcomp.comp);
 	spin_lock_irqsave(&bnad->bna_lock, flags);
 	ret = bfa_nw_flash_get_attr(&bnad->bna.flash, &drvinfo->flash_attr,
 				bnad_cb_completion, &fcomp);
@@ -230,32 +230,12 @@ bnad_debugfs_open_drvinfo(struct inode *inode, struct file *file)
 static loff_t
 bnad_debugfs_lseek(struct file *file, loff_t offset, int orig)
 {
-	loff_t pos = file->f_pos;
 	struct bnad_debug_info *debug = file->private_data;
 
 	if (!debug)
 		return -EINVAL;
 
-	switch (orig) {
-	case 0:
-		file->f_pos = offset;
-		break;
-	case 1:
-		file->f_pos += offset;
-		break;
-	case 2:
-		file->f_pos = debug->buffer_len - offset;
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	if (file->f_pos < 0 || file->f_pos > debug->buffer_len) {
-		file->f_pos = pos;
-		return -EINVAL;
-	}
-
-	return file->f_pos;
+	return fixed_size_llseek(file, offset, orig, debug->buffer_len);
 }
 
 static ssize_t

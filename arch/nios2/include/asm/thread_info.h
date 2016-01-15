@@ -47,10 +47,7 @@ struct thread_info {
 						  0-0x7FFFFFFF for user-thead
 						  0-0xFFFFFFFF for kernel-thread
 						*/
-	struct restart_block	restart_block;
-#ifdef CONFIG_MMU
 	struct pt_regs		*regs;
-#endif
 };
 
 /*
@@ -66,9 +63,6 @@ struct thread_info {
 	.cpu		= 0,			\
 	.preempt_count	= INIT_PREEMPT_COUNT,	\
 	.addr_limit	= KERNEL_DS,		\
-	.restart_block	= {			\
-		.fn = do_no_restart_syscall,	\
-	},					\
 }
 
 #define init_thread_info	(init_thread_union.thread_info)
@@ -77,18 +71,11 @@ struct thread_info {
 /* how to get the thread information struct from C */
 static inline struct thread_info *current_thread_info(void)
 {
-	struct thread_info *ti;
-	__asm__ __volatile__(
-		"mov	%0, sp\n"
-		"and	%0, %0, %1\n"
-		: "=&r" (ti)
-		: "r" (~(THREAD_SIZE-1))
-		);
-	return ti;
+	register unsigned long sp asm("sp");
+
+	return (struct thread_info *)(sp & ~(THREAD_SIZE - 1));
 }
 #endif /* !__ASSEMBLY__ */
-
-#define PREEMPT_ACTIVE		0x10000000
 
 /*
  * thread information flags

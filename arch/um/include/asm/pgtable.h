@@ -18,7 +18,6 @@
 #define _PAGE_ACCESSED	0x080
 #define _PAGE_DIRTY	0x100
 /* If _PAGE_PRESENT is clear, we use these: */
-#define _PAGE_FILE	0x008	/* nonlinear file mapping, saved PTE; unset:swap */
 #define _PAGE_PROTNONE	0x010	/* if the user mapped it with PROT_NONE;
 				   pte_present gives true */
 
@@ -68,8 +67,6 @@ extern unsigned long end_iomem;
 #define PAGE_READONLY	__pgprot(_PAGE_PRESENT | _PAGE_USER | _PAGE_ACCESSED)
 #define PAGE_KERNEL	__pgprot(_PAGE_PRESENT | _PAGE_RW | _PAGE_DIRTY | _PAGE_ACCESSED)
 #define PAGE_KERNEL_EXEC	__pgprot(__PAGE_KERNEL_EXEC)
-
-#define io_remap_pfn_range	remap_pfn_range
 
 /*
  * The i386 can't do page protection for execute, and considers that the same
@@ -151,14 +148,6 @@ static inline int pte_write(pte_t pte)
 {
 	return((pte_get_bits(pte, _PAGE_RW)) &&
 	       !(pte_get_bits(pte, _PAGE_PROTNONE)));
-}
-
-/*
- * The following only works if pte_present() is not true.
- */
-static inline int pte_file(pte_t pte)
-{
-	return pte_get_bits(pte, _PAGE_FILE);
 }
 
 static inline int pte_dirty(pte_t pte)

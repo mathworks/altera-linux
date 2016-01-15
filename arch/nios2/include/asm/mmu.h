@@ -2,8 +2,6 @@
  * Copyright (C) 2010 Tobias Klauser <tklauser@distanz.ch>
  * Copyright (C) 2004 Microtronix Datacom Ltd.
  *
- * Taken from m68knommu.
- *
  * This file is subject to the terms and conditions of the GNU General Public
  * License. See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -12,12 +10,7 @@
 #ifndef _ASM_NIOS2_MMU_H
 #define _ASM_NIOS2_MMU_H
 
-#ifndef CONFIG_MMU
-# include <asm-generic/mmu.h>
-#else
-
 /* Default "unsigned long" context */
 typedef unsigned long mm_context_t;
 
-#endif /* CONFIG_MMU */
 #endif /* _ASM_NIOS2_MMU_H */

@@ -130,14 +130,14 @@ static int zoran_show(struct seq_file *p, void *v)
 
 static int zoran_open(struct inode *inode, struct file *file)
 {
-	struct zoran *data = PDE(inode)->data;
+	struct zoran *data = PDE_DATA(inode);
 	return single_open(file, zoran_show, data);
 }
 
 static ssize_t zoran_write(struct file *file, const char __user *buffer,
 			size_t count, loff_t *ppos)
 {
-	struct zoran *zr = PDE(file_inode(file))->data;
+	struct zoran *zr = PDE_DATA(file_inode(file));
 	char *string, *sp;
 	char *line, *ldelim, *varname, *svar, *tdelim;
 
@@ -157,8 +157,8 @@ static ssize_t zoran_write(struct file *file, const char __user *buffer,
 		return -EFAULT;
 	}
 	string[count] = 0;
-	dprintk(4, KERN_INFO "%s: write_proc: name=%s count=%zu zr=%p\n",
-		ZR_DEVNAME(zr), file->f_path.dentry->d_name.name, count, zr);
+	dprintk(4, KERN_INFO "%s: write_proc: name=%pD count=%zu zr=%p\n",
+		ZR_DEVNAME(zr), file, count, zr);
 	ldelim = " \t\n";
 	tdelim = "=";
 	line = strpbrk(sp, ldelim);
@@ -201,7 +201,7 @@ zoran_proc_init (struct zoran *zr)
 		dprintk(2,
 			KERN_INFO
 			"%s: procfs entry /proc/%s allocated. data=%p\n",
-			ZR_DEVNAME(zr), name, zr->zoran_proc->data);
+			ZR_DEVNAME(zr), name, zr);
 	} else {
 		dprintk(1, KERN_ERR "%s: Unable to initialise /proc/%s\n",
 			ZR_DEVNAME(zr), name);

@@ -478,7 +478,7 @@ ath5k_hw_wisoc_reset(struct ath5k_hw *ah, u32 flags)
 	regval = ioread32(reg);
 	iowrite32(regval | val, reg);
 	regval = ioread32(reg);
-	usleep_range(100, 150);
+	udelay(100);	/* NB: should be atomic */
 
 	/* Bring BB/MAC out of reset */
 	iowrite32(regval & ~val, reg);
@@ -984,9 +984,7 @@ ath5k_hw_commit_eeprom_settings(struct ath5k_hw *ah,
 	if (ah->ah_version == AR5K_AR5210)
 		return;
 
-	ee_mode = ath5k_eeprom_mode_from_channel(channel);
-	if (WARN_ON(ee_mode < 0))
-		return;
+	ee_mode = ath5k_eeprom_mode_from_channel(ah, channel);
 
 	/* Adjust power delta for channel 14 */
 	if (channel->center_freq == 2484)

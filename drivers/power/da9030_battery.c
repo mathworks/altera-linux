@@ -505,7 +505,7 @@ static int da9030_battery_probe(struct platform_device *pdev)
 	    pdata->charge_millivolt > 4350)
 		return -EINVAL;
 
-	charger = kzalloc(sizeof(*charger), GFP_KERNEL);
+	charger = devm_kzalloc(&pdev->dev, sizeof(*charger), GFP_KERNEL);
 	if (charger == NULL)
 		return -ENOMEM;
 
@@ -557,8 +557,6 @@ err_notifier:
 	cancel_delayed_work(&charger->work);
 
 err_charger_init:
-	kfree(charger);
-
 	return ret;
 }
 
@@ -575,15 +573,12 @@ static int da9030_battery_remove(struct platform_device *dev)
 	da9030_set_charge(charger, 0);
 	power_supply_unregister(&charger->psy);
 
-	kfree(charger);
-
 	return 0;
 }
 
 static struct platform_driver da903x_battery_driver = {
 	.driver	= {
 		.name	= "da903x-battery",
-		.owner	= THIS_MODULE,
 	},
 	.probe = da9030_battery_probe,
 	.remove = da9030_battery_remove,

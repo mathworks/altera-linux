@@ -4,7 +4,13 @@
 
 obj-y				+= cache.o dma-default.o extable.o fault.o \
 				   gup.o init.o mmap.o page.o page-funcs.o \
-				   tlbex.o tlbex-fault.o uasm.o
+				   tlbex.o tlbex-fault.o tlb-funcs.o
+
+ifdef CONFIG_CPU_MICROMIPS
+obj-y				+= uasm-micromips.o
+else
+obj-y				+= uasm-mips.o
+endif
 
 obj-$(CONFIG_32BIT)		+= ioremap.o pgtable-32.o
 obj-$(CONFIG_64BIT)		+= pgtable-64.o

@@ -48,6 +48,8 @@
 #include <scsi/scsi_device.h>
 #include <scsi/scsi_transport_fc.h>
 
+#include "t4_hw.h"
+#include "csio_hw_chip.h"
 #include "csio_wr.h"
 #include "csio_mb.h"
 #include "csio_scsi.h"
@@ -59,13 +61,6 @@
  * An error value used by host. Should not clash with FW defined return values.
  */
 #define	FW_HOSTERROR			255
-
-#define CSIO_FW_FNAME		"cxgb4/t4fw.bin"
-#define CSIO_CF_FNAME		"cxgb4/t4-config.txt"
-
-#define FW_VERSION_MAJOR	1
-#define FW_VERSION_MINOR	2
-#define FW_VERSION_MICRO	8
 
 #define CSIO_HW_NAME		"Chelsio FCoE Adapter"
 #define CSIO_MAX_PFN		8
@@ -100,7 +95,7 @@ enum {
 };
 
 struct csio_msix_entries {
-	unsigned short	vector;		/* Vector assigned by pci_enable_msix */
+	unsigned short	vector;		/* Assigned MSI-X vector */
 	void		*dev_id;	/* Priv object associated w/ this msix*/
 	char		desc[24];	/* Description of this vector */
 };
@@ -116,20 +111,17 @@ struct csio_scsi_cpu_info {
 };
 
 extern int csio_dbg_level;
-extern int csio_force_master;
 extern unsigned int csio_port_mask;
 extern int csio_msi;
 
 #define CSIO_VENDOR_ID				0x1425
 #define CSIO_ASIC_DEVID_PROTO_MASK		0xFF00
 #define CSIO_ASIC_DEVID_TYPE_MASK		0x00FF
-#define CSIO_FPGA				0xA000
-#define CSIO_T4_FCOE_ASIC			0x4600
 
-#define CSIO_GLBL_INTR_MASK		(CIM | MPS | PL | PCIE | MC | EDC0 | \
-					 EDC1 | LE | TP | MA | PM_TX | PM_RX | \
-					 ULP_RX | CPL_SWITCH | SGE | \
-					 ULP_TX | SF)
+#define CSIO_GLBL_INTR_MASK	(CIM_F | MPS_F | PL_F | PCIE_F | MC_F | \
+				 EDC0_F | EDC1_F | LE_F | TP_F | MA_F | \
+				 PM_TX_F | PM_RX_F | ULP_RX_F | \
+				 CPL_SWITCH_F | SGE_F | ULP_TX_F | SF_F)
 
 /*
  * Hard parameters used to initialize the card in the absence of a
@@ -161,17 +153,6 @@ enum {
 	CSIO_SGE_INT_CNT_VAL_1		= 4,
 	CSIO_SGE_INT_CNT_VAL_2		= 8,
 	CSIO_SGE_INT_CNT_VAL_3		= 16,
-
-	/* Storage specific - used by FW_PFVF_CMD */
-	CSIO_WX_CAPS			= FW_CMD_CAP_PF, /* w/x all */
-	CSIO_R_CAPS			= FW_CMD_CAP_PF, /* r all */
-	CSIO_NVI			= 4,
-	CSIO_NIQ_FLINT			= 34,
-	CSIO_NETH_CTRL			= 32,
-	CSIO_NEQ			= 66,
-	CSIO_NEXACTF			= 32,
-	CSIO_CMASK			= FW_PFVF_CMD_CMASK_MASK,
-	CSIO_PMASK			= FW_PFVF_CMD_PMASK_MASK,
 };
 
 /* Slowpath events */
@@ -194,28 +175,13 @@ struct csio_evt_msg {
 };
 
 enum {
-	EEPROMVSIZE    = 32768, /* Serial EEPROM virtual address space size */
 	SERNUM_LEN     = 16,    /* Serial # length */
 	EC_LEN         = 16,    /* E/C length */
 	ID_LEN         = 16,    /* ID length */
-	TRACE_LEN      = 112,   /* length of trace data and mask */
 };
 
 enum {
-	SF_PAGE_SIZE = 256,           /* serial flash page size */
-	SF_SEC_SIZE = 64 * 1024,      /* serial flash sector size */
 	SF_SIZE = SF_SEC_SIZE * 16,   /* serial flash size */
-};
-
-enum { MEM_EDC0, MEM_EDC1, MEM_MC };
-
-enum {
-	MEMWIN0_APERTURE = 2048,
-	MEMWIN0_BASE     = 0x1b800,
-	MEMWIN1_APERTURE = 32768,
-	MEMWIN1_BASE     = 0x28000,
-	MEMWIN2_APERTURE = 65536,
-	MEMWIN2_BASE     = 0x30000,
 };
 
 /* serial flash and firmware constants */
@@ -230,39 +196,7 @@ enum {
 	SF_RD_DATA_FAST = 0xb,        /* read flash */
 	SF_RD_ID	= 0x9f,	      /* read ID */
 	SF_ERASE_SECTOR = 0xd8,       /* erase sector */
-
-	FW_START_SEC = 8,             /* first flash sector for FW */
-	FW_END_SEC = 15,              /* last flash sector for FW */
-	FW_IMG_START = FW_START_SEC * SF_SEC_SIZE,
-	FW_MAX_SIZE = (FW_END_SEC - FW_START_SEC + 1) * SF_SEC_SIZE,
-
-	FLASH_CFG_MAX_SIZE    = 0x10000 , /* max size of the flash config file*/
-	FLASH_CFG_OFFSET      = 0x1f0000,
-	FLASH_CFG_START_SEC   = FLASH_CFG_OFFSET / SF_SEC_SIZE,
-	FPGA_FLASH_CFG_OFFSET = 0xf0000 , /* if FPGA mode, then cfg file is
-					   * at 1MB - 64KB */
-	FPGA_FLASH_CFG_START_SEC  = FPGA_FLASH_CFG_OFFSET / SF_SEC_SIZE,
 };
-
-/*
- * Flash layout.
- */
-#define FLASH_START(start)	((start) * SF_SEC_SIZE)
-#define FLASH_MAX_SIZE(nsecs)	((nsecs) * SF_SEC_SIZE)
-
-enum {
-	/*
-	 * Location of firmware image in FLASH.
-	 */
-	FLASH_FW_START_SEC = 8,
-	FLASH_FW_NSECS = 8,
-	FLASH_FW_START = FLASH_START(FLASH_FW_START_SEC),
-	FLASH_FW_MAX_SIZE = FLASH_MAX_SIZE(FLASH_FW_NSECS),
-
-};
-
-#undef FLASH_START
-#undef FLASH_MAX_SIZE
 
 /* Management module */
 enum {
@@ -310,7 +244,7 @@ struct csio_adap_desc {
 struct pci_params {
 	uint16_t   vendor_id;
 	uint16_t   device_id;
-	uint32_t   vpd_cap_addr;
+	int        vpd_cap_addr;
 	uint16_t   speed;
 	uint8_t    width;
 };
@@ -513,11 +447,7 @@ struct csio_hw {
 	uint32_t		fwrev;
 	uint32_t		tp_vers;
 	char			chip_ver;
-	uint32_t		cfg_finiver;
-	uint32_t		cfg_finicsum;
-	uint32_t		cfg_cfcsum;
-	uint8_t			cfg_csum_status;
-	uint8_t			cfg_store;
+	uint16_t		chip_id;		/* Tells T4/T5 chip */
 	enum csio_dev_state	fw_state;
 	struct csio_vpd		vpd;
 
@@ -556,6 +486,9 @@ struct csio_hw {
 							 */
 
 	struct csio_fcoe_res_info  fres_info;		/* Fcoe resource info */
+	struct csio_hw_chip_ops	*chip_ops;		/* T4/T5 Chip specific
+							 * Operations
+							 */
 
 	/* MSIX vectors */
 	struct csio_msix_entries msix_entries[CSIO_MAX_MSIX_VECS];
@@ -636,9 +569,16 @@ csio_us_to_core_ticks(struct csio_hw *hw, uint32_t us)
 #define csio_dbg(__hw, __fmt, ...)
 #endif
 
+int csio_hw_wait_op_done_val(struct csio_hw *, int, uint32_t, int,
+			     int, int, uint32_t *);
+void csio_hw_tp_wr_bits_indirect(struct csio_hw *, unsigned int,
+				 unsigned int, unsigned int);
 int csio_mgmt_req_lookup(struct csio_mgmtm *, struct csio_ioreq *);
 void csio_hw_intr_disable(struct csio_hw *);
-int csio_hw_slow_intr_handler(struct csio_hw *hw);
+int csio_hw_slow_intr_handler(struct csio_hw *);
+int csio_handle_intr_status(struct csio_hw *, unsigned int,
+			    const struct intr_info *);
+
 int csio_hw_start(struct csio_hw *);
 int csio_hw_stop(struct csio_hw *);
 int csio_hw_reset(struct csio_hw *);
@@ -647,19 +587,17 @@ int csio_is_hw_removing(struct csio_hw *);
 
 int csio_fwevtq_handler(struct csio_hw *);
 void csio_evtq_worker(struct work_struct *);
-int csio_enqueue_evt(struct csio_hw *hw, enum csio_evt type,
-				void *evt_msg, uint16_t len);
+int csio_enqueue_evt(struct csio_hw *, enum csio_evt, void *, uint16_t);
 void csio_evtq_flush(struct csio_hw *hw);
 
 int csio_request_irqs(struct csio_hw *);
 void csio_intr_enable(struct csio_hw *);
 void csio_intr_disable(struct csio_hw *, bool);
+void csio_hw_fatal_err(struct csio_hw *);
 
 struct csio_lnode *csio_lnode_alloc(struct csio_hw *);
 int csio_config_queues(struct csio_hw *);
 
-int csio_hw_mc_read(struct csio_hw *, uint32_t, __be32 *, uint64_t *);
-int csio_hw_edc_read(struct csio_hw *, int, uint32_t, __be32 *, uint64_t *);
 int csio_hw_init(struct csio_hw *);
 void csio_hw_exit(struct csio_hw *);
 #endif /* ifndef __CSIO_HW_H__ */

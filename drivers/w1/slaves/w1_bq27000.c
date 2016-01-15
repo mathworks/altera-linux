@@ -57,6 +57,8 @@ static int w1_bq27000_add_slave(struct w1_slave *sl)
 	ret = platform_device_add_data(pdev,
 				       &bq27000_battery_info,
 				       sizeof(bq27000_battery_info));
+	if (ret)
+		goto pdev_add_failed;
 	pdev->dev.parent = &sl->dev;
 
 	ret = platform_device_add(pdev);
@@ -68,7 +70,7 @@ static int w1_bq27000_add_slave(struct w1_slave *sl)
 	goto success;
 
 pdev_add_failed:
-	platform_device_unregister(pdev);
+	platform_device_put(pdev);
 success:
 	return ret;
 }
@@ -86,7 +88,7 @@ static struct w1_family_ops w1_bq27000_fops = {
 };
 
 static struct w1_family w1_bq27000_family = {
-	.fid = 1,
+	.fid = W1_FAMILY_BQ27000,
 	.fops = &w1_bq27000_fops,
 };
 
@@ -109,7 +111,7 @@ module_exit(w1_bq27000_exit);
 
 module_param(F_ID, int, S_IRUSR);
 MODULE_PARM_DESC(F_ID, "1-wire slave FID for BQ device");
-
+MODULE_ALIAS("w1-family-" __stringify(W1_FAMILY_BQ27000));
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("Texas Instruments Ltd");
 MODULE_DESCRIPTION("HDQ/1-wire slave driver bq27000 battery monitor chip");

@@ -1,6 +1,8 @@
-#include <newt.h>
 #include <signal.h>
 #include <stdbool.h>
+#ifdef HAVE_BACKTRACE_SUPPORT
+#include <execinfo.h>
+#endif
 
 #include "../../util/cache.h"
 #include "../../util/debug.h"
@@ -10,10 +12,12 @@
 #include "../util.h"
 #include "../libslang.h"
 #include "../keysyms.h"
+#include "tui.h"
 
 static volatile int ui__need_resize;
 
 extern struct perf_error_ops perf_tui_eops;
+extern bool tui_helpline__set;
 
 extern void hist_browser__init_hpp(void);
 
@@ -88,12 +92,24 @@ int ui__getch(int delay_secs)
 	return SLkp_getkey();
 }
 
-static void newt_suspend(void *d __maybe_unused)
+#ifdef HAVE_BACKTRACE_SUPPORT
+static void ui__signal_backtrace(int sig)
 {
-	newtSuspend();
-	raise(SIGTSTP);
-	newtResume();
+	void *stackdump[32];
+	size_t size;
+
+	ui__exit(false);
+	psignal(sig, "perf");
+
+	printf("-------- backtrace --------\n");
+	size = backtrace(stackdump, ARRAY_SIZE(stackdump));
+	backtrace_symbols_fd(stackdump, size, STDOUT_FILENO);
+
+	exit(0);
 }
+#else
+# define ui__signal_backtrace  ui__signal
+#endif
 
 static void ui__signal(int sig)
 {
@@ -106,7 +122,17 @@ int ui__init(void)
 {
 	int err;
 
-	newtInit();
+	SLutf8_enable(-1);
+	SLtt_get_terminfo();
+	SLtt_get_screen_size();
+
+	err = SLsmg_init_smg();
+	if (err < 0)
+		goto out;
+	err = SLang_init_tty(0, 0, 0);
+	if (err < 0)
+		goto out;
+
 	err = SLkp_init();
 	if (err < 0) {
 		pr_err("TUI initialization failed.\n");
@@ -115,13 +141,12 @@ int ui__init(void)
 
 	SLkp_define_keysym((char *)"^(kB)", SL_KEY_UNTAB);
 
-	newtSetSuspendCallback(newt_suspend, NULL);
 	ui_helpline__init();
 	ui_browser__init();
-	ui_progress__init();
+	tui_progress__init();
 
-	signal(SIGSEGV, ui__signal);
-	signal(SIGFPE, ui__signal);
+	signal(SIGSEGV, ui__signal_backtrace);
+	signal(SIGFPE, ui__signal_backtrace);
 	signal(SIGINT, ui__signal);
 	signal(SIGQUIT, ui__signal);
 	signal(SIGTERM, ui__signal);
@@ -135,7 +160,7 @@ out:
 
 void ui__exit(bool wait_for_ok)
 {
-	if (wait_for_ok)
+	if (wait_for_ok && tui_helpline__set)
 		ui__question_window("Fatal Error",
 				    ui_helpline__last_msg,
 				    "Press any key...", 0);

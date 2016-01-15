@@ -106,7 +106,7 @@ static void __init pcibios_allocate_bus_resources(struct list_head *bus_list)
 				if (!r->flags)
 					continue;
 				if (!r->start ||
-				    pci_claim_resource(dev, idx) < 0) {
+				    pci_claim_bridge_resource(dev, idx) < 0) {
 					printk(KERN_ERR "PCI:"
 					       " Cannot allocate resource"
 					       " region %d of bridge %s\n",
@@ -221,7 +221,7 @@ int pci_mmap_page_range(struct pci_dev *dev, struct vm_area_struct *vma,
 	/* Leave vm_pgoff as-is, the PCI space address is the physical
 	 * address on this platform.
 	 */
-	vma->vm_flags |= VM_LOCKED | VM_IO;
+	vma->vm_flags |= VM_LOCKED;
 
 	prot = pgprot_val(vma->vm_page_prot);
 	prot &= ~_PAGE_CACHE;

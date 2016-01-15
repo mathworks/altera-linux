@@ -14,7 +14,7 @@
 #include <linux/pm_clock.h>
 #include <linux/platform_device.h>
 
-#ifdef CONFIG_PM_RUNTIME
+#ifdef CONFIG_PM
 static int davinci_pm_runtime_suspend(struct device *dev)
 {
 	int ret;
@@ -53,7 +53,7 @@ static struct dev_pm_domain davinci_pm_domain = {
 
 static struct pm_clk_notifier_block platform_bus_notifier = {
 	.pm_domain = &davinci_pm_domain,
-	.con_ids = { "fck", NULL, },
+	.con_ids = { "fck", "master", "slave", NULL },
 };
 
 static int __init davinci_pm_runtime_init(void)

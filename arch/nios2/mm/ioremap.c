@@ -4,8 +4,6 @@
  *   Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
  * Copyright (C) 2004 Microtronix Datacom Ltd.
  *
- * based on arch/m68knommu/mm/kmap.c
- *
  * This file is subject to the terms and conditions of the GNU General Public
  * License. See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -64,6 +62,7 @@ static inline int remap_area_pmd(pmd_t *pmd, unsigned long address,
 		BUG();
 	do {
 		pte_t *pte = pte_alloc_kernel(pmd, address);
+
 		if (!pte)
 			return -ENOMEM;
 		remap_area_pte(pte, address, end - address, address + phys_addr,
@@ -142,12 +141,12 @@ void __iomem *__ioremap(unsigned long phys_addr, unsigned long size,
 
 	/*
 	 * Map uncached objects in the low part of address space to
-	 * CONFIG_IO_REGION_BASE
+	 * CONFIG_NIOS2_IO_REGION_BASE
 	 */
 	if (IS_MAPPABLE_UNCACHEABLE(phys_addr) &&
 	    IS_MAPPABLE_UNCACHEABLE(last_addr) &&
 	    !(cacheflag & _PAGE_CACHED))
-		return (void __iomem *)(CONFIG_IO_REGION_BASE + phys_addr);
+		return (void __iomem *)(CONFIG_NIOS2_IO_REGION_BASE + phys_addr);
 
 	/* Mappings have to be page-aligned */
 	offset = phys_addr & ~PAGE_MASK;
@@ -177,7 +176,7 @@ void __iounmap(void __iomem *addr)
 {
 	struct vm_struct *p;
 
-	if ((unsigned long) addr > CONFIG_IO_REGION_BASE)	/* FIXME */
+	if ((unsigned long) addr > CONFIG_NIOS2_IO_REGION_BASE)
 		return;
 
 	p = remove_vm_area((void *) (PAGE_MASK & (unsigned long __force) addr));

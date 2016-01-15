@@ -1,6 +1,7 @@
 /*
  * Early printk for Nios2.
  *
+ * Copyright (C) 2015, Altera Corporation
  * Copyright (C) 2010, Tobias Klauser <tklauser@distanz.ch>
  * Copyright (C) 2009, Wind River Systems Inc
  *   Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
@@ -14,6 +15,7 @@
 #include <linux/init.h>
 #include <linux/kernel.h>
 #include <linux/io.h>
+
 #include <asm/prom.h>
 
 static unsigned long base_addr;
@@ -83,7 +85,7 @@ static void early_console_write(struct console *con, const char *s, unsigned n)
 selected
 #endif
 
-static struct console early_console = {
+static struct console early_console_prom = {
 	.name	= "early",
 	.write	= early_console_write,
 	.flags	= CON_PRINTBUFFER | CON_BOOT,
@@ -94,7 +96,7 @@ void __init setup_early_printk(void)
 {
 #if defined(CONFIG_SERIAL_ALTERA_JTAGUART_CONSOLE) ||	\
 	defined(CONFIG_SERIAL_ALTERA_UART_CONSOLE)
-	base_addr = early_altera_uart_or_juart_console();
+	base_addr = of_early_console();
 #else
 	base_addr = 0;
 #endif
@@ -110,6 +112,7 @@ void __init setup_early_printk(void)
 	JUART_SET_CR(JUART_GET_CR() | ALTERA_JTAGUART_CONTROL_AC_MSK);
 #endif
 
-	register_console(&early_console);
+	early_console = &early_console_prom;
+	register_console(early_console);
 	pr_info("early_console initialized at 0x%08lx\n", base_addr);
 }

@@ -23,7 +23,6 @@
 #include <asm/asm-offsets.h>
 #include <asm/asm-macros.h>
 
-#ifdef CONFIG_MMU
 /*
  * ZERO_PAGE is a special page that is used for zero-initialized
  * data and COW.
@@ -33,7 +32,6 @@
 .align 12
 empty_zero_page:
 	.space	PAGE_SIZE
-#endif /* CONFIG_MMU */
 
 /*
  * This global variable is used as an extension to the nios'
@@ -42,11 +40,6 @@ empty_zero_page:
 	.data
 	.align	2
 	.set noat
-#ifndef CONFIG_MMU
-	.global	status_extension
-status_extension:
-	.long	0
-#endif /* CONFIG_MMU */
 
 	.global _current_thread
 _current_thread:
@@ -71,14 +64,14 @@ _current_thread:
 ENTRY(_start)
 	wrctl	status, r0		/* Disable interrupts */
 
-	/* Flush all cache lines within the instruction cache */
+	/* Initialize all cache lines within the instruction cache */
 	movia	r1, NIOS2_ICACHE_SIZE
 	movui	r2, NIOS2_ICACHE_LINE_SIZE
 
-text_flush:
-	flushi	r1
+icache_init:
+	initi	r1
 	sub	r1, r1, r2
-	bgt	r1, r0, text_flush
+	bgt	r1, r0, icache_init
 	br	1f
 
 	/*
@@ -88,8 +81,6 @@ text_flush:
 ENTRY(exception_handler_hook)
 	movia	r24, inthandler
 	jmp	r24
-
-#ifdef CONFIG_MMU
 
 ENTRY(fast_handler)
 	nextpc et
@@ -119,22 +110,19 @@ r3save:
 	.word 0x0
 ENTRY(fast_handler_end)
 
-#endif /* CONFIG_MMU */
-
 1:
 	/*
-	 * After flushing the instruction cache, we must flush the data
-	 * cache.
+	 * After the instruction cache is initialized, the data cache must
+	 * also be initialized.
 	 */
 	movia	r1, NIOS2_DCACHE_SIZE
 	movui	r2, NIOS2_DCACHE_LINE_SIZE
 
-data_flush:
-	flushd	0(r1)
+dcache_init:
+	initd	0(r1)
 	sub	r1, r1, r2
-	bgt	r1, r0, data_flush
+	bgt	r1, r0, dcache_init
 
-#ifdef CONFIG_MMU
 	nextpc	r1			/* Find out where we are */
 chkadr:
 	movia	r2, chkadr
@@ -155,7 +143,6 @@ loop_move:				/* r1: src, r2: dest, r3: last dest */
 	jmp	r1			/* jmp to _start */
 
 finish_move:
-#endif /* CONFIG_MMU */
 
 	/* Mask off all possible interrupts */
 	wrctl	ienable, r0
@@ -167,12 +154,6 @@ finish_move:
 	stb	r0, 0(r2)
 	addi	r2, r2, 1
 	bne	r1, r2, 1b
-
-#ifndef CONFIG_MMU
-	movia	r1, status_extension	/* get the STATUS extension address */
-	movi	r2, PS_S		/* set initial mode = supervisor */
-	stw	r2, 0(r1)
-#endif /* CONFIG_MMU */
 
 	movia	r1, init_thread_union	/* set stack at top of the task union */
 	addi	sp, r1, THREAD_SIZE

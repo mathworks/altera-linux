@@ -153,6 +153,7 @@ long strnlen_user(const char __user *s, long n)
 
 	for (i = 0; i < n; i++) {
 		char c;
+
 		if (get_user(c, s + i) == -EFAULT)
 			return 0;
 		if (c == 0)

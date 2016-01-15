@@ -57,7 +57,6 @@ struct thread_info {
 					       0-0x7FFFFFFF for user-thead
 					       0-0xFFFFFFFF for kernel-thread
 					     */
-	struct restart_block    restart_block;
 	__u8			supervisor_stack[0];
 
 	/* saved context data */
@@ -79,9 +78,6 @@ struct thread_info {
 	.cpu		= 0,				\
 	.preempt_count	= 1,				\
 	.addr_limit	= KERNEL_DS,			\
-	.restart_block  = {				\
-			  .fn = do_no_restart_syscall,	\
-	},						\
 	.ksp            = 0,                            \
 }
 
@@ -127,8 +123,6 @@ register struct thread_info *current_thread_info_reg asm("r10");
 /* Work to do when returning from interrupt/exception */
 /* For OpenRISC, this is anything in the LSW other than syscall trace */
 #define _TIF_WORK_MASK (0xff & ~(_TIF_SYSCALL_TRACE|_TIF_SINGLESTEP))
-
-#define tsk_is_polling(t) test_tsk_thread_flag(t, TIF_POLLING_NRFLAG)
 
 #endif /* __KERNEL__ */
 

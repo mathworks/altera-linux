@@ -26,11 +26,15 @@
 #include <linux/interrupt.h>
 #include <linux/of.h>
 
-asmlinkage void do_IRQ(int irq, struct pt_regs *regs)
+static u32 ienable;
+
+asmlinkage void do_IRQ(int hwirq, struct pt_regs *regs)
 {
 	struct pt_regs *oldregs = set_irq_regs(regs);
+	int irq;
 
 	irq_enter();
+	irq = irq_find_mapping(NULL, hwirq);
 	generic_handle_irq(irq);
 	irq_exit();
 
@@ -39,18 +43,14 @@ asmlinkage void do_IRQ(int irq, struct pt_regs *regs)
 
 static void chip_unmask(struct irq_data *d)
 {
-	unsigned ien;
-	ien = RDCTL(CTL_IENABLE);
-	ien |= (1 << d->irq);
-	WRCTL(CTL_IENABLE, ien);
+	ienable |= (1 << d->hwirq);
+	WRCTL(CTL_IENABLE, ienable);
 }
 
 static void chip_mask(struct irq_data *d)
 {
-	unsigned ien;
-	ien = RDCTL(CTL_IENABLE);
-	ien &= ~(1 << d->irq);
-	WRCTL(CTL_IENABLE, ien);
+	ienable &= ~(1 << d->hwirq);
+	WRCTL(CTL_IENABLE, ienable);
 }
 
 static struct irq_chip m_irq_chip = {
@@ -72,13 +72,15 @@ static struct irq_domain_ops irq_ops = {
 	.xlate	= irq_domain_xlate_onecell,
 };
 
-
 void __init init_IRQ(void)
 {
 	struct irq_domain *domain;
 	struct device_node *node;
 
-	node = of_find_compatible_node(NULL, NULL, "ALTR,nios2-1.0");
+	node = of_find_compatible_node(NULL, NULL, "altr,nios2-1.0");
+	if (!node)
+		node = of_find_compatible_node(NULL, NULL, "altr,nios2-1.1");
+
 	BUG_ON(!node);
 
 	domain = irq_domain_add_linear(node, NIOS2_CPU_NR_IRQS, &irq_ops, NULL);
@@ -86,4 +88,6 @@ void __init init_IRQ(void)
 
 	irq_set_default_host(domain);
 	of_node_put(node);
+	/* Load the initial ienable value */
+	ienable = RDCTL(CTL_IENABLE);
 }

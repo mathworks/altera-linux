@@ -26,9 +26,10 @@
 
 #include <media/ov772x.h>
 #include <media/soc_camera.h>
+#include <media/v4l2-clk.h>
 #include <media/v4l2-ctrls.h>
-#include <media/v4l2-chip-ident.h>
 #include <media/v4l2-subdev.h>
+#include <media/v4l2-image-sizes.h>
 
 /*
  * register offset
@@ -360,10 +361,6 @@
 #define SCAL0_ACTRL     0x08 /* Auto scaling factor control */
 #define SCAL1_2_ACTRL   0x04 /* Auto scaling factor control */
 
-#define VGA_WIDTH		640
-#define VGA_HEIGHT		480
-#define QVGA_WIDTH		320
-#define QVGA_HEIGHT		240
 #define OV772X_MAX_WIDTH	VGA_WIDTH
 #define OV772X_MAX_HEIGHT	VGA_HEIGHT
 
@@ -379,7 +376,7 @@
  */
 
 struct ov772x_color_format {
-	enum v4l2_mbus_pixelcode code;
+	u32 code;
 	enum v4l2_colorspace colorspace;
 	u8 dsp3;
 	u8 dsp4;
@@ -396,10 +393,10 @@ struct ov772x_win_size {
 struct ov772x_priv {
 	struct v4l2_subdev                subdev;
 	struct v4l2_ctrl_handler	  hdl;
+	struct v4l2_clk			 *clk;
 	struct ov772x_camera_info        *info;
 	const struct ov772x_color_format *cfmt;
 	const struct ov772x_win_size     *win;
-	int                               model;
 	unsigned short                    flag_vflip:1;
 	unsigned short                    flag_hflip:1;
 	/* band_filter = COM8[5] ? 256 - BDBASE : 0 */
@@ -411,7 +408,7 @@ struct ov772x_priv {
  */
 static const struct ov772x_color_format ov772x_cfmts[] = {
 	{
-		.code		= V4L2_MBUS_FMT_YUYV8_2X8,
+		.code		= MEDIA_BUS_FMT_YUYV8_2X8,
 		.colorspace	= V4L2_COLORSPACE_JPEG,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -419,7 +416,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= OFMT_YUV,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_YVYU8_2X8,
+		.code		= MEDIA_BUS_FMT_YVYU8_2X8,
 		.colorspace	= V4L2_COLORSPACE_JPEG,
 		.dsp3		= UV_ON,
 		.dsp4		= DSP_OFMT_YUV,
@@ -427,7 +424,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= OFMT_YUV,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_UYVY8_2X8,
+		.code		= MEDIA_BUS_FMT_UYVY8_2X8,
 		.colorspace	= V4L2_COLORSPACE_JPEG,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -435,7 +432,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= OFMT_YUV,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_RGB555_2X8_PADHI_LE,
+		.code		= MEDIA_BUS_FMT_RGB555_2X8_PADHI_LE,
 		.colorspace	= V4L2_COLORSPACE_SRGB,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -443,7 +440,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= FMT_RGB555 | OFMT_RGB,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_RGB555_2X8_PADHI_BE,
+		.code		= MEDIA_BUS_FMT_RGB555_2X8_PADHI_BE,
 		.colorspace	= V4L2_COLORSPACE_SRGB,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -451,7 +448,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= FMT_RGB555 | OFMT_RGB,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_RGB565_2X8_LE,
+		.code		= MEDIA_BUS_FMT_RGB565_2X8_LE,
 		.colorspace	= V4L2_COLORSPACE_SRGB,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -459,7 +456,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		.com7		= FMT_RGB565 | OFMT_RGB,
 	},
 	{
-		.code		= V4L2_MBUS_FMT_RGB565_2X8_BE,
+		.code		= MEDIA_BUS_FMT_RGB565_2X8_BE,
 		.colorspace	= V4L2_COLORSPACE_SRGB,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_YUV,
@@ -471,7 +468,7 @@ static const struct ov772x_color_format ov772x_cfmts[] = {
 		 * regardless of the COM7 value. We can thus only support 10-bit
 		 * Bayer until someone figures it out.
 		 */
-		.code		= V4L2_MBUS_FMT_SBGGR10_1X10,
+		.code		= MEDIA_BUS_FMT_SBGGR10_1X10,
 		.colorspace	= V4L2_COLORSPACE_SRGB,
 		.dsp3		= 0x0,
 		.dsp4		= DSP_OFMT_RAW10,
@@ -620,17 +617,6 @@ static int ov772x_s_ctrl(struct v4l2_ctrl *ctrl)
 	return -EINVAL;
 }
 
-static int ov772x_g_chip_ident(struct v4l2_subdev *sd,
-			       struct v4l2_dbg_chip_ident *id)
-{
-	struct ov772x_priv *priv = to_ov772x(sd);
-
-	id->ident    = priv->model;
-	id->revision = 0;
-
-	return 0;
-}
-
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 static int ov772x_g_register(struct v4l2_subdev *sd,
 			     struct v4l2_dbg_register *reg)
@@ -652,7 +638,7 @@ static int ov772x_g_register(struct v4l2_subdev *sd,
 }
 
 static int ov772x_s_register(struct v4l2_subdev *sd,
-			     struct v4l2_dbg_register *reg)
+			     const struct v4l2_dbg_register *reg)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 
@@ -668,8 +654,9 @@ static int ov772x_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	struct ov772x_priv *priv = to_ov772x(sd);
 
-	return soc_camera_set_power(&client->dev, ssdd, on);
+	return soc_camera_set_power(&client->dev, ssdd, priv->clk, on);
 }
 
 static const struct ov772x_win_size *ov772x_select_win(u32 width, u32 height)
@@ -965,11 +952,9 @@ static int ov772x_video_probe(struct ov772x_priv *priv)
 	switch (VERSION(pid, ver)) {
 	case OV7720:
 		devname     = "ov7720";
-		priv->model = V4L2_IDENT_OV7720;
 		break;
 	case OV7725:
 		devname     = "ov7725";
-		priv->model = V4L2_IDENT_OV7725;
 		break;
 	default:
 		dev_err(&client->dev,
@@ -997,7 +982,6 @@ static const struct v4l2_ctrl_ops ov772x_ctrl_ops = {
 };
 
 static struct v4l2_subdev_core_ops ov772x_subdev_core_ops = {
-	.g_chip_ident	= ov772x_g_chip_ident,
 #ifdef CONFIG_VIDEO_ADV_DEBUG
 	.g_register	= ov772x_g_register,
 	.s_register	= ov772x_s_register,
@@ -1006,7 +990,7 @@ static struct v4l2_subdev_core_ops ov772x_subdev_core_ops = {
 };
 
 static int ov772x_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
-			   enum v4l2_mbus_pixelcode *code)
+			   u32 *code)
 {
 	if (index >= ARRAY_SIZE(ov772x_cfmts))
 		return -EINVAL;
@@ -1088,13 +1072,22 @@ static int ov772x_probe(struct i2c_client *client,
 	if (priv->hdl.error)
 		return priv->hdl.error;
 
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
+	if (IS_ERR(priv->clk)) {
+		ret = PTR_ERR(priv->clk);
+		goto eclkget;
+	}
+
 	ret = ov772x_video_probe(priv);
 	if (ret < 0) {
+		v4l2_clk_put(priv->clk);
+eclkget:
 		v4l2_ctrl_handler_free(&priv->hdl);
 	} else {
 		priv->cfmt = &ov772x_cfmts[0];
 		priv->win = &ov772x_win_sizes[0];
 	}
+
 	return ret;
 }
 
@@ -1102,6 +1095,7 @@ static int ov772x_remove(struct i2c_client *client)
 {
 	struct ov772x_priv *priv = to_ov772x(i2c_get_clientdata(client));
 
+	v4l2_clk_put(priv->clk);
 	v4l2_device_unregister_subdev(&priv->subdev);
 	v4l2_ctrl_handler_free(&priv->hdl);
 	return 0;

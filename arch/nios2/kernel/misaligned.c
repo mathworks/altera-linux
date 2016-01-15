@@ -2,7 +2,7 @@
  *  linux/arch/nios2/kernel/misaligned.c
  *
  *  basic emulation for mis-aligned accesses on the NIOS II cpu
- *  modeled after the version for arm in arm/alignment.c
+ *  modelled after the version for arm in arm/alignment.c
  *
  *  Brad Parker <brad@heeltoe.com>
  *  Copyright (C) 2010 Ambient Corporation
@@ -20,6 +20,7 @@
 #include <linux/init.h>
 #include <linux/sched.h>
 #include <linux/uaccess.h>
+#include <linux/seq_file.h>
 
 #include <asm/traps.h>
 #include <asm/unaligned.h>
@@ -52,6 +53,7 @@ static int reg_offsets[32];
 static inline u32 get_reg_val(struct pt_regs *fp, int reg)
 {
 	u8 *p = ((u8 *)fp) + reg_offsets[reg];
+
 	return *(u32 *)p;
 }
 
@@ -165,8 +167,8 @@ asmlinkage void handle_unaligned_c(struct pt_regs *fp, int cause)
 
 	if (fault) {
 		if (in_kernel) {
-			pr_err("fault during kernel misaligned fixup @ %#lx; addr 0x%08lx; isn=0x%08x\n",
-				fp->ea, (long unsigned int)addr,
+			pr_err("fault during kernel misaligned fixup @ %#lx; addr 0x%08x; isn=0x%08x\n",
+				fp->ea, (unsigned int)addr,
 				(unsigned int)isn);
 		} else {
 			pr_err("fault during user misaligned fixup @ %#lx; isn=%08x addr=0x%08x sp=0x%08lx pid=%d\n",
@@ -188,10 +190,10 @@ asmlinkage void handle_unaligned_c(struct pt_regs *fp, int cause)
 		fp->ea += 4;
 
 		if (ma_usermode & KM_WARN) {
-			pr_err("kernel unaligned access @ %#lx; BADADDR 0x%08lx; cause=%d, isn=0x%08lx\n",
+			pr_err("kernel unaligned access @ %#lx; BADADDR 0x%08x; cause=%d, isn=0x%08x\n",
 				fp->ea,
-				(long unsigned int)addr, cause,
-				(long unsigned int)isn);
+				(unsigned int)addr, cause,
+				(unsigned int)isn);
 			/* show_regs(fp); */
 		}
 
@@ -216,61 +218,6 @@ asmlinkage void handle_unaligned_c(struct pt_regs *fp, int cause)
 	else
 		fp->ea += 4;	/* else advance */
 }
-
-#ifdef CONFIG_PROC_FS
-static const char * const usermode_action[] = {
-	"ignored",	/* 0 */
-	"warn",		/* 1 */
-	"fixup",	/* 2 */
-	"fixup+warn",	/*  3 */
-	"signal",	/* 4 */
-	"signal+warn",	/*  5 */
-	"signal+fixup",
-	"signal+fixup+warn"
-};
-
-static int
-proc_misaligned_read(char *page, char **start, off_t off, int count,
-		     int *eof, void *data)
-{
-	char *p = page;
-	int len;
-
-	p += sprintf(p, "User:\t\t%lu\n", ma_user);
-	p += sprintf(p, "Kernel:\t\t%lu\n", ma_kern);
-	p += sprintf(p, "Skipped:\t%lu\n", ma_skipped);
-	p += sprintf(p, "Half:\t\t%lu\n", ma_half);
-	p += sprintf(p, "Word:\t\t%lu\n", ma_word);
-	p += sprintf(p, "User faults:\t%i (%s)\n",
-		     ma_usermode,
-		     usermode_action[ma_usermode & 7]);
-
-	len = (p - page) - off;
-	if (len < 0)
-		len = 0;
-
-	*eof = (len <= count) ? 1 : 0;
-	*start = page + off;
-
-	return len;
-}
-
-static int
-proc_misaligned_write(struct file *file, const char __user *buffer,
-		      unsigned long count, void *data)
-{
-	char mode;
-
-	if (count > 0) {
-		if (get_user(mode, buffer))
-			return -EFAULT;
-		if (mode >= '0' && mode <= '5')
-			ma_usermode = mode - '0';
-	}
-
-	return count;
-}
-#endif /* CONFIG_PROC_FS */
 
 static void __init misaligned_calc_reg_offsets(void)
 {
@@ -298,17 +245,6 @@ static void __init misaligned_calc_reg_offsets(void)
 
 static int __init misaligned_init(void)
 {
-#ifdef CONFIG_PROC_FS
-	struct proc_dir_entry *res;
-
-	res = create_proc_entry("misalign", S_IWUSR | S_IRUGO, NULL);
-	if (!res)
-		return -ENOMEM;
-
-	res->read_proc = proc_misaligned_read;
-	res->write_proc = proc_misaligned_write;
-#endif
-
 	/* default mode - silent fix */
 	ma_usermode = UM_FIXUP | KM_WARN;
 

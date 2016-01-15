@@ -22,7 +22,7 @@
 	|| (defined(CONFIG_SERIAL_ALTERA_UART_CONSOLE) && defined(UART0_BASE))
 static void *my_ioremap(unsigned long physaddr)
 {
-	return (void *)(physaddr | CONFIG_IO_REGION_BASE);
+	return (void *)(physaddr | CONFIG_NIOS2_IO_REGION_BASE);
 }
 #endif
 
@@ -33,7 +33,7 @@ static void *my_ioremap(unsigned long physaddr)
 #define ALTERA_JTAGUART_CONTROL_REG			4
 #define ALTERA_JTAGUART_CONTROL_AC_MSK			(0x00000400)
 #define ALTERA_JTAGUART_CONTROL_WSPACE_MSK		(0xFFFF0000)
-static unsigned uartbase;
+static void *uartbase;
 
 #if defined(CONFIG_SERIAL_ALTERA_JTAGUART_CONSOLE_BYPASS)
 static void jtag_putc(int ch)
@@ -60,7 +60,7 @@ static int putchar(int ch)
 
 static void console_init(void)
 {
-	uartbase = (unsigned long) my_ioremap((unsigned long) JTAG_UART_BASE);
+	uartbase = my_ioremap((unsigned long) JTAG_UART_BASE);
 	writel(ALTERA_JTAGUART_CONTROL_AC_MSK,
 		uartbase + ALTERA_JTAGUART_CONTROL_REG);
 }

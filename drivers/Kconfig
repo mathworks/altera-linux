@@ -1,5 +1,7 @@
 menu "Device Drivers"
 
+source "drivers/amba/Kconfig"
+
 source "drivers/base/Kconfig"
 
 source "drivers/bus/Kconfig"
@@ -36,8 +38,6 @@ source "drivers/firewire/Kconfig"
 
 source "drivers/fpga/Kconfig"
 
-source "drivers/message/i2o/Kconfig"
-
 source "drivers/macintosh/Kconfig"
 
 source "drivers/net/Kconfig"
@@ -53,6 +53,8 @@ source "drivers/char/Kconfig"
 source "drivers/i2c/Kconfig"
 
 source "drivers/spi/Kconfig"
+
+source "drivers/spmi/Kconfig"
 
 source "drivers/hsi/Kconfig"
 
@@ -120,6 +122,8 @@ source "drivers/vfio/Kconfig"
 
 source "drivers/vlynq/Kconfig"
 
+source "drivers/virt/Kconfig"
+
 source "drivers/virtio/Kconfig"
 
 source "drivers/hv/Kconfig"
@@ -144,7 +148,7 @@ source "drivers/remoteproc/Kconfig"
 
 source "drivers/rpmsg/Kconfig"
 
-source "drivers/virt/Kconfig"
+source "drivers/soc/Kconfig"
 
 source "drivers/devfreq/Kconfig"
 
@@ -163,5 +167,21 @@ source "drivers/pwm/Kconfig"
 source "drivers/irqchip/Kconfig"
 
 source "drivers/ipack/Kconfig"
+
+source "drivers/reset/Kconfig"
+
+source "drivers/fmc/Kconfig"
+
+source "drivers/phy/Kconfig"
+
+source "drivers/powercap/Kconfig"
+
+source "drivers/mcb/Kconfig"
+
+source "drivers/ras/Kconfig"
+
+source "drivers/thunderbolt/Kconfig"
+
+source "drivers/android/Kconfig"
 
 endmenu

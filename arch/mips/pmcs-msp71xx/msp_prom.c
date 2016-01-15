@@ -83,7 +83,7 @@ static inline unsigned char str2hexnum(unsigned char c)
 	return 0; /* foo */
 }
 
-static inline int str2eaddr(unsigned char *ea, unsigned char *str)
+int str2eaddr(unsigned char *ea, unsigned char *str)
 {
 	int index = 0;
 	unsigned char num = 0;
@@ -295,7 +295,7 @@ char *prom_getenv(char *env_name)
 
 	while (*var) {
 		if (strncmp(env_name, *var, i) == 0) {
-			return (*var + strlen(env_name) + 1);
+			return *var + strlen(env_name) + 1;
 		}
 		var++;
 	}

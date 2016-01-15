@@ -22,35 +22,12 @@
 #include <asm/pgtable.h>
 #include <asm/cacheflush.h>
 
-#ifndef CONFIG_MMU
-void *module_alloc(unsigned long size)
-{
-	if (size == 0)
-		return NULL;
-	return vmalloc(size);
-}
-
-/* Free memory returned from module_alloc */
-void module_free(struct module *mod, void *module_region)
-{
-	vfree(module_region);
-	/*
-	 * FIXME: If module_region == mod->init_region, trim exception
-	 * table entries.
-	 */
-}
-
-#else /* CONFIG_MMU */
-
 /*
- * FIXME:  modules should NOT be allocated with kmalloc for (obvious) reasons.
+ * Modules should NOT be allocated with kmalloc for (obvious) reasons.
  * But we do it for now to avoid relocation issues. CALL26/PCREL26 cannot reach
  * from 0x80000000 (vmalloc area) to 0xc00000000 (kernel) (kmalloc returns
  * addresses in 0xc0000000)
- *
- * We should really have some trampolines for this instead.
  */
-
 void *module_alloc(unsigned long size)
 {
 	if (size == 0)
@@ -59,16 +36,10 @@ void *module_alloc(unsigned long size)
 }
 
 /* Free memory returned from module_alloc */
-void module_free(struct module *mod, void *module_region)
+void module_memfree(void *module_region)
 {
 	kfree(module_region);
-	/*
-	 * FIXME: If module_region == mod->init_region, trim exception
-	 * table entries.
-	 */
 }
-
-#endif /* CONFIG_MMU */
 
 int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 			unsigned int symindex, unsigned int relsec,
@@ -92,6 +63,7 @@ int apply_relocate_add(Elf32_Shdr *sechdrs, const char *strtab,
 			= ((Elf32_Sym *)sechdrs[symindex].sh_addr
 				+ ELF32_R_SYM(rela[i].r_info));
 		uint32_t v = sym->st_value + rela[i].r_addend;
+
 		pr_debug("reltype %d 0x%x name:<%s>\n",
 			ELF32_R_TYPE(rela[i].r_info),
 			rela[i].r_offset, strtab + sym->st_name);
@@ -163,8 +135,4 @@ int module_finalize(const Elf_Ehdr *hdr, const Elf_Shdr *sechdrs,
 {
 	flush_cache_all();
 	return 0;
-}
-
-void module_arch_cleanup(struct module *mod)
-{
 }

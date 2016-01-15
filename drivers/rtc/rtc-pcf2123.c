@@ -18,11 +18,11 @@
  * should look something like:
  *
  * static struct spi_board_info ek_spi_devices[] = {
- * 	...
- * 	{
- * 		.modalias		= "rtc-pcf2123",
- * 		.chip_select		= 1,
- * 		.controller_data	= (void *)AT91_PIN_PA10,
+ *	...
+ *	{
+ *		.modalias		= "rtc-pcf2123",
+ *		.chip_select		= 1,
+ *		.controller_data	= (void *)AT91_PIN_PA10,
  *		.max_speed_hz		= 1000 * 1000,
  *		.mode			= SPI_CS_HIGH,
  *		.bus_num		= 0,
@@ -38,6 +38,7 @@
 #include <linux/errno.h>
 #include <linux/init.h>
 #include <linux/kernel.h>
+#include <linux/of.h>
 #include <linux/string.h>
 #include <linux/slab.h>
 #include <linux/rtc.h>
@@ -94,8 +95,9 @@ static ssize_t pcf2123_show(struct device *dev, struct device_attribute *attr,
 
 	r = container_of(attr, struct pcf2123_sysfs_reg, attr);
 
-	if (strict_strtoul(r->name, 16, &reg))
-		return -EINVAL;
+	ret = kstrtoul(r->name, 16, &reg);
+	if (ret)
+		return ret;
 
 	txbuf[0] = PCF2123_READ | reg;
 	ret = spi_write_then_read(spi, txbuf, 1, rxbuf, 1);
@@ -117,9 +119,13 @@ static ssize_t pcf2123_store(struct device *dev, struct device_attribute *attr,
 
 	r = container_of(attr, struct pcf2123_sysfs_reg, attr);
 
-	if (strict_strtoul(r->name, 16, &reg)
-		|| strict_strtoul(buffer, 10, &val))
-		return -EINVAL;
+	ret = kstrtoul(r->name, 16, &reg);
+	if (ret)
+		return ret;
+
+	ret = kstrtoul(buffer, 10, &val);
+	if (ret)
+		return ret;
 
 	txbuf[0] = PCF2123_WRITE | reg;
 	txbuf[1] = val;
@@ -226,7 +232,8 @@ static int pcf2123_probe(struct spi_device *spi)
 	u8 txbuf[2], rxbuf[2];
 	int ret, i;
 
-	pdata = kzalloc(sizeof(struct pcf2123_plat_data), GFP_KERNEL);
+	pdata = devm_kzalloc(&spi->dev, sizeof(struct pcf2123_plat_data),
+				GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
 	spi->dev.platform_data = pdata;
@@ -265,6 +272,7 @@ static int pcf2123_probe(struct spi_device *spi)
 
 	if (!(rxbuf[0] & 0x20)) {
 		dev_err(&spi->dev, "chip not found\n");
+		ret = -ENODEV;
 		goto kfree_exit;
 	}
 
@@ -281,7 +289,7 @@ static int pcf2123_probe(struct spi_device *spi)
 	pcf2123_delay_trec();
 
 	/* Finalize the initialization */
-	rtc = rtc_device_register(pcf2123_driver.driver.name, &spi->dev,
+	rtc = devm_rtc_device_register(&spi->dev, pcf2123_driver.driver.name,
 			&pcf2123_rtc_ops, THIS_MODULE);
 
 	if (IS_ERR(rtc)) {
@@ -314,35 +322,38 @@ sysfs_exit:
 		device_remove_file(&spi->dev, &pdata->regs[i].attr);
 
 kfree_exit:
-	kfree(pdata);
 	spi->dev.platform_data = NULL;
 	return ret;
 }
 
 static int pcf2123_remove(struct spi_device *spi)
 {
-	struct pcf2123_plat_data *pdata = spi->dev.platform_data;
+	struct pcf2123_plat_data *pdata = dev_get_platdata(&spi->dev);
 	int i;
 
 	if (pdata) {
-		struct rtc_device *rtc = pdata->rtc;
-
-		if (rtc)
-			rtc_device_unregister(rtc);
 		for (i = 0; i < 16; i++)
 			if (pdata->regs[i].name[0])
 				device_remove_file(&spi->dev,
 						   &pdata->regs[i].attr);
-		kfree(pdata);
 	}
 
 	return 0;
 }
 
+#ifdef CONFIG_OF
+static const struct of_device_id pcf2123_dt_ids[] = {
+	{ .compatible = "nxp,rtc-pcf2123", },
+	{ /* sentinel */ }
+};
+MODULE_DEVICE_TABLE(of, pcf2123_dt_ids);
+#endif
+
 static struct spi_driver pcf2123_driver = {
 	.driver	= {
 			.name	= "rtc-pcf2123",
 			.owner	= THIS_MODULE,
+			.of_match_table = of_match_ptr(pcf2123_dt_ids),
 	},
 	.probe	= pcf2123_probe,
 	.remove	= pcf2123_remove,

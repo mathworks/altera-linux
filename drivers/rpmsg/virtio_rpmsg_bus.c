@@ -41,6 +41,7 @@
  * @svq:	tx virtqueue
  * @rbufs:	kernel address of rx buffers
  * @sbufs:	kernel address of tx buffers
+ * @num_bufs:	total number of buffers for rx and tx
  * @last_sbuf:	index of last tx buffer used
  * @bufs_dma:	dma base addr of the buffers
  * @tx_lock:	protects svq, sbufs and sleepers, to allow concurrent senders.
@@ -60,6 +61,7 @@ struct virtproc_info {
 	struct virtio_device *vdev;
 	struct virtqueue *rvq, *svq;
 	void *rbufs, *sbufs;
+	unsigned int num_bufs;
 	int last_sbuf;
 	dma_addr_t bufs_dma;
 	struct mutex tx_lock;
@@ -86,13 +88,14 @@ struct rpmsg_channel_info {
 #define to_rpmsg_driver(d) container_of(d, struct rpmsg_driver, drv)
 
 /*
- * We're allocating 512 buffers of 512 bytes for communications, and then
- * using the first 256 buffers for RX, and the last 256 buffers for TX.
+ * We're allocating buffers of 512 bytes each for communications. The
+ * number of buffers will be computed from the number of buffers supported
+ * by the vring, upto a maximum of 512 buffers (256 in each direction).
  *
  * Each buffer will have 16 bytes for the msg header and 496 bytes for
  * the payload.
  *
- * This will require a total space of 256KB for the buffers.
+ * This will utilize a maximum total space of 256KB for the buffers.
  *
  * We might also want to add support for user-provided buffers in time.
  * This will allow bigger buffer size flexibility, and can also be used
@@ -102,9 +105,8 @@ struct rpmsg_channel_info {
  * can change this without changing anything in the firmware of the remote
  * processor.
  */
-#define RPMSG_NUM_BUFS		(512)
+#define MAX_RPMSG_NUM_BUFS	(512)
 #define RPMSG_BUF_SIZE		(512)
-#define RPMSG_TOTAL_BUF_SPACE	(RPMSG_NUM_BUFS * RPMSG_BUF_SIZE)
 
 /*
  * Local addresses are dynamically allocated on-demand.
@@ -579,7 +581,7 @@ static void *get_a_tx_buf(struct virtproc_info *vrp)
 	 * either pick the next unused tx buffer
 	 * (half of our buffers are used for sending messages)
 	 */
-	if (vrp->last_sbuf < RPMSG_NUM_BUFS / 2)
+	if (vrp->last_sbuf < vrp->num_bufs / 2)
 		ret = vrp->sbufs + RPMSG_BUF_SIZE * vrp->last_sbuf++;
 	/* or recycle a used one */
 	else
@@ -757,14 +759,14 @@ int rpmsg_send_offchannel_raw(struct rpmsg_channel *rpdev, u32 src, u32 dst,
 	mutex_lock(&vrp->tx_lock);
 
 	/* add message to the remote processor's virtqueue */
-	err = virtqueue_add_buf(vrp->svq, &sg, 1, 0, msg, GFP_KERNEL);
+	err = virtqueue_add_outbuf(vrp->svq, &sg, 1, msg, GFP_KERNEL);
 	if (err) {
 		/*
 		 * need to reclaim the buffer here, otherwise it's lost
 		 * (memory won't leak, but rpmsg won't use it again for TX).
 		 * this will wait for a buffer management overhaul.
 		 */
-		dev_err(dev, "virtqueue_add_buf failed: %d\n", err);
+		dev_err(dev, "virtqueue_add_outbuf failed: %d\n", err);
 		goto out;
 	}
 
@@ -776,22 +778,12 @@ out:
 }
 EXPORT_SYMBOL(rpmsg_send_offchannel_raw);
 
-/* called when an rx buffer is used, and it's time to digest a message */
-static void rpmsg_recv_done(struct virtqueue *rvq)
+static int rpmsg_recv_single(struct virtproc_info *vrp, struct device *dev,
+			     struct rpmsg_hdr *msg, unsigned int len)
 {
-	struct rpmsg_hdr *msg;
-	unsigned int len;
 	struct rpmsg_endpoint *ept;
 	struct scatterlist sg;
-	struct virtproc_info *vrp = rvq->vdev->priv;
-	struct device *dev = &rvq->vdev->dev;
 	int err;
-
-	msg = virtqueue_get_buf(rvq, &len);
-	if (!msg) {
-		dev_err(dev, "uhm, incoming signal, but no used buffer ?\n");
-		return;
-	}
 
 	dev_dbg(dev, "From: 0x%x, To: 0x%x, Len: %d, Flags: %d, Reserved: %d\n",
 					msg->src, msg->dst, msg->len,
@@ -806,7 +798,7 @@ static void rpmsg_recv_done(struct virtqueue *rvq)
 	if (len > RPMSG_BUF_SIZE ||
 		msg->len > (len - sizeof(struct rpmsg_hdr))) {
 		dev_warn(dev, "inbound msg too big: (%d, %d)\n", len, msg->len);
-		return;
+		return -EINVAL;
 	}
 
 	/* use the dst addr to fetch the callback of the appropriate user */
@@ -839,14 +831,45 @@ static void rpmsg_recv_done(struct virtqueue *rvq)
 	sg_init_one(&sg, msg, RPMSG_BUF_SIZE);
 
 	/* add the buffer back to the remote processor's virtqueue */
-	err = virtqueue_add_buf(vrp->rvq, &sg, 0, 1, msg, GFP_KERNEL);
+	err = virtqueue_add_inbuf(vrp->rvq, &sg, 1, msg, GFP_KERNEL);
 	if (err < 0) {
 		dev_err(dev, "failed to add a virtqueue buffer: %d\n", err);
+		return err;
+	}
+
+	return 0;
+}
+
+/* called when an rx buffer is used, and it's time to digest a message */
+static void rpmsg_recv_done(struct virtqueue *rvq)
+{
+	struct virtproc_info *vrp = rvq->vdev->priv;
+	struct device *dev = &rvq->vdev->dev;
+	struct rpmsg_hdr *msg;
+	unsigned int len, msgs_received = 0;
+	int err;
+
+	msg = virtqueue_get_buf(rvq, &len);
+	if (!msg) {
+		dev_err(dev, "uhm, incoming signal, but no used buffer ?\n");
 		return;
 	}
 
+	while (msg) {
+		err = rpmsg_recv_single(vrp, dev, msg, len);
+		if (err)
+			break;
+
+		msgs_received++;
+
+		msg = virtqueue_get_buf(rvq, &len);
+	};
+
+	dev_dbg(dev, "Received %u messages\n", msgs_received);
+
 	/* tell the remote processor we added another available rx buffer */
-	virtqueue_kick(vrp->rvq);
+	if (msgs_received)
+		virtqueue_kick(vrp->rvq);
 }
 
 /*
@@ -927,6 +950,8 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	struct virtproc_info *vrp;
 	void *bufs_va;
 	int err = 0, i;
+	size_t total_buf_space;
+	bool notify;
 
 	vrp = kzalloc(sizeof(*vrp), GFP_KERNEL);
 	if (!vrp)
@@ -947,12 +972,26 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	vrp->rvq = vqs[0];
 	vrp->svq = vqs[1];
 
+	/* we expect symmetric tx/rx vrings */
+	WARN_ON(virtqueue_get_vring_size(vrp->rvq) !=
+		virtqueue_get_vring_size(vrp->svq));
+
+	/* we need less buffers if vrings are small */
+	if (virtqueue_get_vring_size(vrp->rvq) < MAX_RPMSG_NUM_BUFS / 2)
+		vrp->num_bufs = virtqueue_get_vring_size(vrp->rvq) * 2;
+	else
+		vrp->num_bufs = MAX_RPMSG_NUM_BUFS;
+
+	total_buf_space = vrp->num_bufs * RPMSG_BUF_SIZE;
+
 	/* allocate coherent memory for the buffers */
 	bufs_va = dma_alloc_coherent(vdev->dev.parent->parent,
-				RPMSG_TOTAL_BUF_SPACE,
-				&vrp->bufs_dma, GFP_KERNEL);
-	if (!bufs_va)
+				     total_buf_space, &vrp->bufs_dma,
+				     GFP_KERNEL);
+	if (!bufs_va) {
+		err = -ENOMEM;
 		goto vqs_del;
+	}
 
 	dev_dbg(&vdev->dev, "buffers: va %p, dma 0x%llx\n", bufs_va,
 					(unsigned long long)vrp->bufs_dma);
@@ -961,16 +1000,16 @@ static int rpmsg_probe(struct virtio_device *vdev)
 	vrp->rbufs = bufs_va;
 
 	/* and half is dedicated for TX */
-	vrp->sbufs = bufs_va + RPMSG_TOTAL_BUF_SPACE / 2;
+	vrp->sbufs = bufs_va + total_buf_space / 2;
 
 	/* set up the receive buffers */
-	for (i = 0; i < RPMSG_NUM_BUFS / 2; i++) {
+	for (i = 0; i < vrp->num_bufs / 2; i++) {
 		struct scatterlist sg;
 		void *cpu_addr = vrp->rbufs + i * RPMSG_BUF_SIZE;
 
 		sg_init_one(&sg, cpu_addr, RPMSG_BUF_SIZE);
 
-		err = virtqueue_add_buf(vrp->rvq, &sg, 0, 1, cpu_addr,
+		err = virtqueue_add_inbuf(vrp->rvq, &sg, 1, cpu_addr,
 								GFP_KERNEL);
 		WARN_ON(err); /* sanity check; this can't really happen */
 	}
@@ -992,16 +1031,30 @@ static int rpmsg_probe(struct virtio_device *vdev)
 		}
 	}
 
+	/*
+	 * Prepare to kick but don't notify yet - we can't do this before
+	 * device is ready.
+	 */
+	notify = virtqueue_kick_prepare(vrp->rvq);
+
+	/* From this point on, we can notify and get callbacks. */
+	virtio_device_ready(vdev);
+
 	/* tell the remote processor it can start sending messages */
-	virtqueue_kick(vrp->rvq);
+	/*
+	 * this might be concurrent with callbacks, but we are only
+	 * doing notify, not a full kick here, so that's ok.
+	 */
+	if (notify)
+		virtqueue_notify(vrp->rvq);
 
 	dev_info(&vdev->dev, "rpmsg host is online\n");
 
 	return 0;
 
 free_coherent:
-	dma_free_coherent(vdev->dev.parent->parent, RPMSG_TOTAL_BUF_SPACE,
-					bufs_va, vrp->bufs_dma);
+	dma_free_coherent(vdev->dev.parent->parent, total_buf_space,
+			  bufs_va, vrp->bufs_dma);
 vqs_del:
 	vdev->config->del_vqs(vrp->vdev);
 free_vrp:
@@ -1019,6 +1072,7 @@ static int rpmsg_remove_device(struct device *dev, void *data)
 static void rpmsg_remove(struct virtio_device *vdev)
 {
 	struct virtproc_info *vrp = vdev->priv;
+	size_t total_buf_space = vrp->num_bufs * RPMSG_BUF_SIZE;
 	int ret;
 
 	vdev->config->reset(vdev);
@@ -1034,8 +1088,8 @@ static void rpmsg_remove(struct virtio_device *vdev)
 
 	vdev->config->del_vqs(vrp->vdev);
 
-	dma_free_coherent(vdev->dev.parent->parent, RPMSG_TOTAL_BUF_SPACE,
-					vrp->rbufs, vrp->bufs_dma);
+	dma_free_coherent(vdev->dev.parent->parent, total_buf_space,
+			  vrp->rbufs, vrp->bufs_dma);
 
 	kfree(vrp);
 }

@@ -19,6 +19,10 @@
 #ifndef _ASM_NIOS2_REGISTERS_H
 #define _ASM_NIOS2_REGISTERS_H
 
+#ifndef __ASSEMBLY__
+#include <asm/cpuinfo.h>
+#endif
+
 /* control register numbers */
 #define CTL_STATUS	0
 #define CTL_ESTATUS	1
@@ -51,12 +55,17 @@
 #define ESTATUS_EU	(1 << 1)	/* user mode */
 #define ESTATUS_EH	(1 << 2)	/* Exception mode */
 
-#ifdef CONFIG_MMU
-
 /* tlbmisc register bits */
+#define TLBMISC_PID_SHIFT	4
+#ifndef __ASSEMBLY__
+#define TLBMISC_PID_MASK	((1UL << cpuinfo.tlb_pid_num_bits) - 1)
+#endif
+#define TLBMISC_WAY_MASK	0xf
+#define TLBMISC_WAY_SHIFT	20
+
+#define TLBMISC_PID	(TLBMISC_PID_MASK << TLBMISC_PID_SHIFT)	/* TLB PID */
 #define TLBMISC_WE	(1 << 18)	/* TLB write enable */
 #define TLBMISC_RD	(1 << 19)	/* TLB read */
-
-#endif /* CONFIG_MMU */
+#define TLBMISC_WAY	(TLBMISC_WAY_MASK << TLBMISC_WAY_SHIFT) /* TLB way */
 
 #endif /* _ASM_NIOS2_REGISTERS_H */

@@ -148,6 +148,7 @@ static void flush_window(void)
 	ulg c = crc;	/* temporary variable */
 	unsigned n;
 	uch *in, *out, ch;
+
 	in = window;
 	out = &output_data[output_ptr];
 	for (n = 0; n < outcnt; n++) {
@@ -172,7 +173,8 @@ static void error(char *x)
 
 void decompress_kernel(void)
 {
-	output_data = (void *) (CONFIG_MEM_BASE | CONFIG_KERNEL_REGION_BASE);
+	output_data = (void *) (CONFIG_NIOS2_MEM_BASE |
+				CONFIG_NIOS2_KERNEL_REGION_BASE);
 	output_ptr = 0;
 	free_mem_ptr = (unsigned long)&_end;
 	free_mem_end_ptr = free_mem_ptr + HEAP_SIZE;

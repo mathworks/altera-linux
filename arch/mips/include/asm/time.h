@@ -46,6 +46,7 @@ extern unsigned int mips_hpt_frequency;
  * so it lives here.
  */
 extern int (*perf_irq)(void);
+extern int __weak get_c0_perfcount_int(void);
 
 /*
  * Initialize the calling CPU's compare interrupt as clockevent device
@@ -55,11 +56,7 @@ extern int r4k_clockevent_init(void);
 
 static inline int mips_clockevent_init(void)
 {
-#ifdef CONFIG_MIPS_MT_SMTC
-	extern int smtc_clockevent_init(void);
-
-	return smtc_clockevent_init();
-#elif defined(CONFIG_CEVT_R4K)
+#ifdef CONFIG_CEVT_R4K
 	return r4k_clockevent_init();
 #else
 	return -ENXIO;
@@ -69,13 +66,11 @@ static inline int mips_clockevent_init(void)
 /*
  * Initialize the count register as a clocksource
  */
-#ifdef CONFIG_CSRC_R4K
 extern int init_r4k_clocksource(void);
-#endif
 
 static inline int init_mips_clocksource(void)
 {
-#if defined(CONFIG_CSRC_R4K) && !defined(CONFIG_CSRC_GIC)
+#ifdef CONFIG_CSRC_R4K
 	return init_r4k_clocksource();
 #else
 	return 0;

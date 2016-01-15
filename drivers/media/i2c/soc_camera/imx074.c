@@ -18,8 +18,9 @@
 #include <linux/module.h>
 
 #include <media/soc_camera.h>
+#include <media/v4l2-async.h>
+#include <media/v4l2-clk.h>
 #include <media/v4l2-subdev.h>
-#include <media/v4l2-chip-ident.h>
 
 /* IMX074 registers */
 
@@ -70,17 +71,18 @@
 
 /* IMX074 has only one fixed colorspace per pixelcode */
 struct imx074_datafmt {
-	enum v4l2_mbus_pixelcode	code;
+	u32	code;
 	enum v4l2_colorspace		colorspace;
 };
 
 struct imx074 {
 	struct v4l2_subdev		subdev;
 	const struct imx074_datafmt	*fmt;
+	struct v4l2_clk			*clk;
 };
 
 static const struct imx074_datafmt imx074_colour_fmts[] = {
-	{V4L2_MBUS_FMT_SBGGR8_1X8, V4L2_COLORSPACE_SRGB},
+	{MEDIA_BUS_FMT_SBGGR8_1X8, V4L2_COLORSPACE_SRGB},
 };
 
 static struct imx074 *to_imx074(const struct i2c_client *client)
@@ -89,7 +91,7 @@ static struct imx074 *to_imx074(const struct i2c_client *client)
 }
 
 /* Find a data format by a pixel code in an array */
-static const struct imx074_datafmt *imx074_find_datafmt(enum v4l2_mbus_pixelcode code)
+static const struct imx074_datafmt *imx074_find_datafmt(u32 code)
 {
 	int i;
 
@@ -234,7 +236,7 @@ static int imx074_cropcap(struct v4l2_subdev *sd, struct v4l2_cropcap *a)
 }
 
 static int imx074_enum_fmt(struct v4l2_subdev *sd, unsigned int index,
-			   enum v4l2_mbus_pixelcode *code)
+			   u32 *code)
 {
 	if ((unsigned int)index >= ARRAY_SIZE(imx074_colour_fmts))
 		return -EINVAL;
@@ -251,29 +253,13 @@ static int imx074_s_stream(struct v4l2_subdev *sd, int enable)
 	return reg_write(client, MODE_SELECT, !!enable);
 }
 
-static int imx074_g_chip_ident(struct v4l2_subdev *sd,
-			       struct v4l2_dbg_chip_ident *id)
-{
-	struct i2c_client *client = v4l2_get_subdevdata(sd);
-
-	if (id->match.type != V4L2_CHIP_MATCH_I2C_ADDR)
-		return -EINVAL;
-
-	if (id->match.addr != client->addr)
-		return -ENODEV;
-
-	id->ident	= V4L2_IDENT_IMX074;
-	id->revision	= 0;
-
-	return 0;
-}
-
 static int imx074_s_power(struct v4l2_subdev *sd, int on)
 {
 	struct i2c_client *client = v4l2_get_subdevdata(sd);
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	struct imx074 *priv = to_imx074(client);
 
-	return soc_camera_set_power(&client->dev, ssdd, on);
+	return soc_camera_set_power(&client->dev, ssdd, priv->clk, on);
 }
 
 static int imx074_g_mbus_config(struct v4l2_subdev *sd,
@@ -299,7 +285,6 @@ static struct v4l2_subdev_video_ops imx074_subdev_video_ops = {
 };
 
 static struct v4l2_subdev_core_ops imx074_subdev_core_ops = {
-	.g_chip_ident	= imx074_g_chip_ident,
 	.s_power	= imx074_s_power,
 };
 
@@ -431,6 +416,7 @@ static int imx074_probe(struct i2c_client *client,
 	struct imx074 *priv;
 	struct i2c_adapter *adapter = to_i2c_adapter(client->dev.parent);
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	int ret;
 
 	if (!ssdd) {
 		dev_err(&client->dev, "IMX074: missing platform data!\n");
@@ -451,12 +437,37 @@ static int imx074_probe(struct i2c_client *client,
 
 	priv->fmt	= &imx074_colour_fmts[0];
 
-	return imx074_video_probe(client);
+	priv->clk = v4l2_clk_get(&client->dev, "mclk");
+	if (IS_ERR(priv->clk)) {
+		dev_info(&client->dev, "Error %ld getting clock\n", PTR_ERR(priv->clk));
+		return -EPROBE_DEFER;
+	}
+
+	ret = soc_camera_power_init(&client->dev, ssdd);
+	if (ret < 0)
+		goto epwrinit;
+
+	ret = imx074_video_probe(client);
+	if (ret < 0)
+		goto eprobe;
+
+	ret = v4l2_async_register_subdev(&priv->subdev);
+	if (!ret)
+		return 0;
+
+epwrinit:
+eprobe:
+	v4l2_clk_put(priv->clk);
+	return ret;
 }
 
 static int imx074_remove(struct i2c_client *client)
 {
 	struct soc_camera_subdev_desc *ssdd = soc_camera_i2c_to_desc(client);
+	struct imx074 *priv = to_imx074(client);
+
+	v4l2_async_unregister_subdev(&priv->subdev);
+	v4l2_clk_put(priv->clk);
 
 	if (ssdd->free_bus)
 		ssdd->free_bus(ssdd);

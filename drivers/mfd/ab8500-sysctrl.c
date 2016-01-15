@@ -15,18 +15,29 @@
 #include <linux/mfd/abx500/ab8500.h>
 #include <linux/mfd/abx500/ab8500-sysctrl.h>
 
+/* RtcCtrl bits */
+#define AB8500_ALARM_MIN_LOW  0x08
+#define AB8500_ALARM_MIN_MID 0x09
+#define RTC_CTRL 0x0B
+#define RTC_ALARM_ENABLE 0x4
+
 static struct device *sysctrl_dev;
 
-void ab8500_power_off(void)
+static void ab8500_power_off(void)
 {
 	sigset_t old;
 	sigset_t all;
-	static char *pss[] = {"ab8500_ac", "ab8500_usb"};
+	static char *pss[] = {"ab8500_ac", "pm2301", "ab8500_usb"};
 	int i;
 	bool charger_present = false;
 	union power_supply_propval val;
 	struct power_supply *psy;
 	int ret;
+
+	if (sysctrl_dev == NULL) {
+		pr_err("%s: sysctrl not initialized\n", __func__);
+		return;
+	}
 
 	/*
 	 * If we have a charger connected and we're powering off,
@@ -85,7 +96,7 @@ int ab8500_sysctrl_read(u16 reg, u8 *value)
 	u8 bank;
 
 	if (sysctrl_dev == NULL)
-		return -EAGAIN;
+		return -EINVAL;
 
 	bank = (reg >> 8);
 	if (!valid_bank(bank))
@@ -101,7 +112,7 @@ int ab8500_sysctrl_write(u16 reg, u8 mask, u8 value)
 	u8 bank;
 
 	if (sysctrl_dev == NULL)
-		return -EAGAIN;
+		return -EINVAL;
 
 	bank = (reg >> 8);
 	if (!valid_bank(bank))
@@ -114,28 +125,37 @@ EXPORT_SYMBOL(ab8500_sysctrl_write);
 
 static int ab8500_sysctrl_probe(struct platform_device *pdev)
 {
+	struct ab8500 *ab8500 = dev_get_drvdata(pdev->dev.parent);
 	struct ab8500_platform_data *plat;
 	struct ab8500_sysctrl_platform_data *pdata;
 
-	sysctrl_dev = &pdev->dev;
 	plat = dev_get_platdata(pdev->dev.parent);
-	if (plat->pm_power_off)
+
+	if (!plat)
+		return -EINVAL;
+
+	sysctrl_dev = &pdev->dev;
+
+	if (!pm_power_off)
 		pm_power_off = ab8500_power_off;
 
 	pdata = plat->sysctrl;
-
 	if (pdata) {
-		int ret, i, j;
+		int last, ret, i, j;
 
-		for (i = AB8500_SYSCLKREQ1RFCLKBUF;
-		     i <= AB8500_SYSCLKREQ8RFCLKBUF; i++) {
+		if (is_ab8505(ab8500))
+			last = AB8500_SYSCLKREQ4RFCLKBUF;
+		else
+			last = AB8500_SYSCLKREQ8RFCLKBUF;
+
+		for (i = AB8500_SYSCLKREQ1RFCLKBUF; i <= last; i++) {
 			j = i - AB8500_SYSCLKREQ1RFCLKBUF;
 			ret = ab8500_sysctrl_write(i, 0xff,
-						   pdata->initial_req_buf_config[j]);
+					pdata->initial_req_buf_config[j]);
 			dev_dbg(&pdev->dev,
-				"Setting SysClkReq%dRfClkBuf 0x%X\n",
-				j + 1,
-				pdata->initial_req_buf_config[j]);
+					"Setting SysClkReq%dRfClkBuf 0x%X\n",
+					j + 1,
+					pdata->initial_req_buf_config[j]);
 			if (ret < 0) {
 				dev_err(&pdev->dev,
 					"unable to set sysClkReq%dRfClkBuf: "
@@ -150,13 +170,16 @@ static int ab8500_sysctrl_probe(struct platform_device *pdev)
 static int ab8500_sysctrl_remove(struct platform_device *pdev)
 {
 	sysctrl_dev = NULL;
+
+	if (pm_power_off == ab8500_power_off)
+		pm_power_off = NULL;
+
 	return 0;
 }
 
 static struct platform_driver ab8500_sysctrl_driver = {
 	.driver = {
 		.name = "ab8500-sysctrl",
-		.owner = THIS_MODULE,
 	},
 	.probe = ab8500_sysctrl_probe,
 	.remove = ab8500_sysctrl_remove,
@@ -166,7 +189,7 @@ static int __init ab8500_sysctrl_init(void)
 {
 	return platform_driver_register(&ab8500_sysctrl_driver);
 }
-subsys_initcall(ab8500_sysctrl_init);
+arch_initcall(ab8500_sysctrl_init);
 
 MODULE_AUTHOR("Mattias Nilsson <mattias.i.nilsson@stericsson.com");
 MODULE_DESCRIPTION("AB8500 system control driver");

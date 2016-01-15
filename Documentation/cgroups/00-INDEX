@@ -18,7 +18,11 @@ memcg_test.txt
 	- Memory Resource Controller; implementation details.
 memory.txt
 	- Memory Resource Controller; design, accounting, interface, testing.
+net_cls.txt
+	- Network classifier cgroups details and usages.
 net_prio.txt
 	- Network priority cgroups details and usages.
 resource_counter.txt
 	- Resource Counter API.
+unified-hierarchy.txt
+	- Description the new/next cgroup interface.

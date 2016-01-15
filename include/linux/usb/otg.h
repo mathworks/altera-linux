@@ -9,14 +9,19 @@
 #ifndef __LINUX_USB_OTG_H
 #define __LINUX_USB_OTG_H
 
+#include <linux/phy/phy.h>
 #include <linux/usb/phy.h>
 
 struct usb_otg {
 	u8			default_a;
 
-	struct usb_phy		*phy;
+	struct phy		*phy;
+	/* old usb_phy interface */
+	struct usb_phy		*usb_phy;
 	struct usb_bus		*host;
 	struct usb_gadget	*gadget;
+
+	enum usb_otg_state	state;
 
 	/* bind/unbind the host controller */
 	int	(*set_host)(struct usb_otg *otg, struct usb_bus *host);
@@ -36,14 +41,7 @@ struct usb_otg {
 
 };
 
-#ifdef CONFIG_USB_OTG_UTILS
-extern const char *otg_state_string(enum usb_otg_state state);
-#else
-static inline const char *otg_state_string(enum usb_otg_state state)
-{
-	return NULL;
-}
-#endif
+extern const char *usb_otg_state_string(enum usb_otg_state state);
 
 /* Context: can sleep */
 static inline int
@@ -98,5 +96,12 @@ otg_start_srp(struct usb_otg *otg)
 
 /* for OTG controller drivers (and maybe other stuff) */
 extern int usb_bus_start_enum(struct usb_bus *bus, unsigned port_num);
+
+enum usb_dr_mode {
+	USB_DR_MODE_UNKNOWN,
+	USB_DR_MODE_HOST,
+	USB_DR_MODE_PERIPHERAL,
+	USB_DR_MODE_OTG,
+};
 
 #endif /* __LINUX_USB_OTG_H */

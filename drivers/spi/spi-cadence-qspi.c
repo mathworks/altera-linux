@@ -1,23 +1,21 @@
 /*
  * Driver for Cadence QSPI Controller
  *
- * Copyright (C) 2012 Altera Corporation
+ * Copyright Altera Corporation (C) 2012-2014. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+#include <linux/clk.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 #include <linux/interrupt.h>
@@ -29,6 +27,8 @@
 #include <linux/of_platform.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
+#include <linux/dma-mapping.h>
+#include <linux/dmaengine.h>
 #include "spi-cadence-qspi.h"
 #include "spi-cadence-qspi-apb.h"
 
@@ -76,7 +76,7 @@ static void cadence_qspi_work(struct work_struct *work)
 		struct spi_transfer *xfer[CQSPI_MAX_TRANS];
 		int status = 0;
 		int n_trans = 0;
-		int next_in_queue = 0;
+		int skip_xfer = 0;
 
 		spi_msg = container_of(cadence_qspi->msg_queue.next,
 			struct spi_message, queue);
@@ -91,27 +91,26 @@ static void cadence_qspi_work(struct work_struct *work)
 					CQSPI_MAX_TRANS);
 				/* Skip process the queue if number of
 				 * transaction is greater than max 2. */
-				next_in_queue = 1;
+				skip_xfer = 1;
 				break;
 			}
 			xfer[n_trans++] = spi_xfer;
 		}
 
-		/* Continue to next queue if next_in_queue is set. */
-		if (next_in_queue)
-			continue;
+		if (!skip_xfer) {
 
-		status = cadence_qspi_apb_process_queue(cadence_qspi, spi,
-					n_trans, xfer);
+			status = cadence_qspi_apb_process_queue(cadence_qspi,
+						spi, n_trans, xfer);
 
-		if (!status) {
-			spi_msg->actual_length += xfer[0]->len;
-			if (n_trans > 1)
-				spi_msg->actual_length += xfer[1]->len;
+			if (!status) {
+				spi_msg->actual_length += xfer[0]->len;
+				if (n_trans > 1)
+					spi_msg->actual_length += xfer[1]->len;
+			}
+
+			spi_msg->status = status;
+			spi_msg->complete(spi_msg->context);
 		}
-
-		spi_msg->status = status;
-		spi_msg->complete(spi_msg->context);
 		spin_lock_irqsave(&cadence_qspi->lock, flags);
 	}
 	spin_unlock_irqrestore(&cadence_qspi->lock, flags);
@@ -242,12 +241,6 @@ static int cadence_qspi_of_get_pdata(struct platform_device *pdev)
 	}
 	pdata->num_chipselect = prop;
 
-	if (of_property_read_u32(np, "master-ref-clk", &prop)) {
-		dev_err(&pdev->dev, "couldn't determine master-ref-clk\n");
-		return -ENXIO;
-	}
-	pdata->master_ref_clk_hz = prop;
-
 	if (of_property_read_u32(np, "ext-decoder", &prop)) {
 		dev_err(&pdev->dev, "couldn't determine ext-decoder\n");
 		return -ENXIO;
@@ -259,6 +252,10 @@ static int cadence_qspi_of_get_pdata(struct platform_device *pdev)
 		return -ENXIO;
 	}
 	pdata->fifo_depth = prop;
+
+	pdata->enable_dma = of_property_read_bool(np, "dmas");
+	dev_info(&pdev->dev, "DMA %senabled\n",
+		pdata->enable_dma ? "" : "NOT ");
 
 	/* Get flash devices platform data */
 	for_each_child_of_node(np, nc) {
@@ -314,6 +311,46 @@ static int cadence_qspi_of_get_pdata(struct platform_device *pdev)
 	return 0;
 }
 
+static void cadence_qspi_dma_shutdown(struct struct_cqspi *cadence_qspi)
+{
+	struct platform_device *pdev = cadence_qspi->pdev;
+	struct cqspi_platform_data *pdata = pdev->dev.platform_data;
+	if (cadence_qspi->txchan)
+		dma_release_channel(cadence_qspi->txchan);
+	if (cadence_qspi->rxchan)
+		dma_release_channel(cadence_qspi->rxchan);
+	pdata->enable_dma = 0;
+	cadence_qspi->rxchan = cadence_qspi->txchan = NULL;
+}
+
+static void cadence_qspi_dma_init(struct struct_cqspi *cadence_qspi)
+{
+	struct platform_device *pdev = cadence_qspi->pdev;
+
+	cadence_qspi->txchan = dma_request_slave_channel(&pdev->dev, "tx");
+	if (cadence_qspi->txchan)
+		dev_dbg(&pdev->dev, "TX channel %s %d selected\n",
+			dma_chan_name(cadence_qspi->txchan),
+			cadence_qspi->txchan->chan_id);
+	else
+		dev_err(&pdev->dev, "could not get TX dma channel\n");
+
+
+	cadence_qspi->rxchan = dma_request_slave_channel(&pdev->dev, "rx");
+	if (cadence_qspi->rxchan)
+		dev_dbg(&pdev->dev, "RX channel %s %d selected\n",
+			dma_chan_name(cadence_qspi->rxchan),
+			cadence_qspi->rxchan->chan_id);
+	else
+		dev_err(&pdev->dev, "could not get RX dma channel\n");
+
+	if (!cadence_qspi->rxchan  || !cadence_qspi->txchan) {
+		/* Error, fall back to non-dma mode */
+		cadence_qspi_dma_shutdown(cadence_qspi);
+		dev_info(&pdev->dev, "falling back to non-DMA operation\n");
+	}
+}
+
 static int cadence_qspi_probe(struct platform_device *pdev)
 {
 	struct spi_master *master;
@@ -342,49 +379,23 @@ static int cadence_qspi_probe(struct platform_device *pdev)
 	cadence_qspi->pdev = pdev;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res) {
-		dev_err(&pdev->dev, "platform_get_resource failed\n");
-		status = -ENXIO;
-		goto err_iomem;
-	}
-
-	cadence_qspi->res = res;
-
-	if (!request_mem_region(res->start, resource_size(res), pdev->name)) {
-		dev_err(&pdev->dev, "request_mem_region failed\n");
-		status = -EBUSY;
-		goto err_iomem;
-	}
-
-	cadence_qspi->iobase = ioremap(res->start, resource_size(res));
+	cadence_qspi->iobase = devm_ioremap_resource(&pdev->dev, res);
 	if (!cadence_qspi->iobase) {
-		dev_err(&pdev->dev, "ioremap failed\n");
-		status = -ENOMEM;
+		dev_err(&pdev->dev, "devm_ioremap_resource res 0 failed\n");
+		status = -EADDRNOTAVAIL;
 		goto err_ioremap;
 	}
+	cadence_qspi->res = res;
 
 	res_ahb = platform_get_resource(pdev, IORESOURCE_MEM, 1);
-	if (!res_ahb) {
-		dev_err(&pdev->dev, "platform_get_resource failed\n");
-		status = -ENXIO;
-		goto err_ahbmem;
-	}
-	cadence_qspi->res_ahb = res_ahb;
-
-	if (!request_mem_region(res_ahb->start, resource_size(res_ahb),
-		pdev->name)) {
-		dev_err(&pdev->dev, "request_mem_region failed\n");
-		status = -EBUSY;
-		goto err_ahbmem;
-	}
-
-	cadence_qspi->qspi_ahb_virt = ioremap(res_ahb->start,
-		resource_size(res_ahb));
+	cadence_qspi->qspi_ahb_virt =
+		devm_ioremap_resource(&pdev->dev, res_ahb);
 	if (!cadence_qspi->qspi_ahb_virt) {
-		dev_err(&pdev->dev, "ioremap res_ahb failed\n");
-		status = -ENOMEM;
+		dev_err(&pdev->dev, "devm_ioremap_resource res 1 failed\n");
+		status = -EADDRNOTAVAIL;
 		goto err_ahbremap;
 	}
+	cadence_qspi->res_ahb = res_ahb;
 
 	cadence_qspi->workqueue =
 		create_singlethread_workqueue(dev_name(master->dev.parent));
@@ -429,6 +440,13 @@ static int cadence_qspi_probe(struct platform_device *pdev)
 	pdev->dev.platform_data = pdata;
 	pdata->qspi_ahb_phy = res_ahb->start;
 
+	cadence_qspi->clk = devm_clk_get(&pdev->dev, NULL);
+	if (IS_ERR(cadence_qspi->clk)) {
+		dev_err(&pdev->dev, "cannot get qspi clk\n");
+		return PTR_ERR(cadence_qspi->clk);
+	}
+	pdata->master_ref_clk_hz = clk_get_rate(cadence_qspi->clk);
+
 	status = cadence_qspi_of_get_pdata(pdev);
 	if (status) {
 		dev_err(&pdev->dev, "Get platform data failed.\n");
@@ -448,6 +466,9 @@ static int cadence_qspi_probe(struct platform_device *pdev)
 		goto err_of;
 	}
 
+	if (pdata->enable_dma)
+		cadence_qspi_dma_init(cadence_qspi);
+
 	dev_info(&pdev->dev, "Cadence QSPI controller driver\n");
 	return 0;
 
@@ -459,14 +480,8 @@ err_start_q:
 err_irq:
 	destroy_workqueue(cadence_qspi->workqueue);
 err_wq:
-	iounmap(cadence_qspi->qspi_ahb_virt);
 err_ahbremap:
-	release_mem_region(res_ahb->start, resource_size(res_ahb));
-err_ahbmem:
-	iounmap(cadence_qspi->iobase);
 err_ioremap:
-	release_mem_region(res->start, resource_size(res));
-err_iomem:
 	spi_master_put(master);
 	dev_err(&pdev->dev, "Cadence QSPI controller probe failed\n");
 	return status;
@@ -476,6 +491,8 @@ static int cadence_qspi_remove(struct platform_device *pdev)
 {
 	struct spi_master *master = platform_get_drvdata(pdev);
 	struct struct_cqspi *cadence_qspi = spi_master_get_devdata(master);
+
+	cadence_qspi_dma_shutdown(cadence_qspi);
 
 	cadence_qspi_apb_controller_disable(cadence_qspi->iobase);
 

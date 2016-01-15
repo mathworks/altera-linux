@@ -16,6 +16,7 @@
 #include <linux/err.h>
 #include <linux/hwmon.h>
 #include <linux/hwmon-sysfs.h>
+#include <linux/bitops.h>
 
 /*
  * AD7314 temperature masks
@@ -67,7 +68,7 @@ static ssize_t ad7314_show_temperature(struct device *dev,
 	switch (spi_get_device_id(chip->spi_dev)->driver_data) {
 	case ad7314:
 		data = (ret & AD7314_TEMP_MASK) >> AD7314_TEMP_SHIFT;
-		data = (data << 6) >> 6;
+		data = sign_extend32(data, 9);
 
 		return sprintf(buf, "%d\n", 250 * data);
 	case adt7301:
@@ -78,7 +79,7 @@ static ssize_t ad7314_show_temperature(struct device *dev,
 		 * register.  1lsb - 31.25 milli degrees centigrade
 		 */
 		data = ret & ADT7301_TEMP_MASK;
-		data = (data << 2) >> 2;
+		data = sign_extend32(data, 13);
 
 		return sprintf(buf, "%d\n",
 			       DIV_ROUND_CLOSEST(data * 3125, 100));
@@ -116,7 +117,7 @@ static int ad7314_probe(struct spi_device *spi_dev)
 	if (chip == NULL)
 		return -ENOMEM;
 
-	dev_set_drvdata(&spi_dev->dev, chip);
+	spi_set_drvdata(spi_dev, chip);
 
 	ret = sysfs_create_group(&spi_dev->dev.kobj, &ad7314_group);
 	if (ret < 0)
@@ -137,7 +138,7 @@ error_remove_group:
 
 static int ad7314_remove(struct spi_device *spi_dev)
 {
-	struct ad7314_data *chip = dev_get_drvdata(&spi_dev->dev);
+	struct ad7314_data *chip = spi_get_drvdata(spi_dev);
 
 	hwmon_device_unregister(chip->hwmon_dev);
 	sysfs_remove_group(&spi_dev->dev.kobj, &ad7314_group);
@@ -166,6 +167,5 @@ static struct spi_driver ad7314_driver = {
 module_spi_driver(ad7314_driver);
 
 MODULE_AUTHOR("Sonic Zhang <sonic.zhang@analog.com>");
-MODULE_DESCRIPTION("Analog Devices AD7314, ADT7301 and ADT7302 digital"
-			" temperature sensor driver");
+MODULE_DESCRIPTION("Analog Devices AD7314, ADT7301 and ADT7302 digital temperature sensor driver");
 MODULE_LICENSE("GPL v2");

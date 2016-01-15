@@ -153,7 +153,7 @@ ENTRY(instruction_trap)
 	stw r5,  100(sp)
 
 	stw gp, 104(sp)
-	stw et, 108(sp)	/* et containts previous sp value. */
+	stw et, 108(sp)	/* et contains previous sp value. */
 	stw fp, 112(sp)
 	stw ea, 116(sp)
 	stw ra, 120(sp)
@@ -590,4 +590,3 @@ restore_registers:
 
 .set at
 .set break
-

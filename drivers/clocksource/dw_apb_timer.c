@@ -21,6 +21,12 @@
 #define APBT_MIN_PERIOD			4
 #define APBT_MIN_DELTA_USEC		200
 
+#define APBTMR_N_LOAD_COUNT		0x00
+#define APBTMR_N_CURRENT_VALUE		0x04
+#define APBTMR_N_CONTROL		0x08
+#define APBTMR_N_EOI			0x0c
+#define APBTMR_N_INT_STATUS		0x10
+
 #define APBTMRS_INT_STATUS		0xa0
 #define APBTMRS_EOI			0xa4
 #define APBTMRS_RAW_INT_STATUS		0xa8
@@ -237,8 +243,7 @@ dw_apb_clockevent_init(int cpu, const char *name, unsigned rating,
 	dw_ced->irqaction.dev_id	= &dw_ced->ced;
 	dw_ced->irqaction.irq		= irq;
 	dw_ced->irqaction.flags		= IRQF_TIMER | IRQF_IRQPOLL |
-					  IRQF_NOBALANCING |
-					  IRQF_DISABLED;
+					  IRQF_NOBALANCING;
 
 	dw_ced->eoi = apbt_eoi;
 	err = setup_irq(irq, &dw_ced->irqaction);
@@ -380,16 +385,4 @@ void dw_apb_clocksource_register(struct dw_apb_clocksource *dw_cs)
 cycle_t dw_apb_clocksource_read(struct dw_apb_clocksource *dw_cs)
 {
 	return (cycle_t)~apbt_readl(&dw_cs->timer, APBTMR_N_CURRENT_VALUE);
-}
-
-/**
- * dw_apb_clocksource_unregister() - unregister and free a clocksource.
- *
- * @dw_cs:	The clocksource to unregister/free.
- */
-void dw_apb_clocksource_unregister(struct dw_apb_clocksource *dw_cs)
-{
-	clocksource_unregister(&dw_cs->cs);
-
-	kfree(dw_cs);
 }

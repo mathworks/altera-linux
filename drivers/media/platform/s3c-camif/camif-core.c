@@ -256,8 +256,7 @@ static void camif_unregister_sensor(struct camif_dev *camif)
 	v4l2_device_unregister_subdev(sd);
 	camif->sensor.sd = NULL;
 	i2c_unregister_device(client);
-	if (adapter)
-		i2c_put_adapter(adapter);
+	i2c_put_adapter(adapter);
 }
 
 static int camif_create_media_links(struct camif_dev *camif)
@@ -341,16 +340,20 @@ static void camif_clk_put(struct camif_dev *camif)
 	int i;
 
 	for (i = 0; i < CLK_MAX_NUM; i++) {
-		if (IS_ERR_OR_NULL(camif->clock[i]))
+		if (IS_ERR(camif->clock[i]))
 			continue;
 		clk_unprepare(camif->clock[i]);
 		clk_put(camif->clock[i]);
+		camif->clock[i] = ERR_PTR(-EINVAL);
 	}
 }
 
 static int camif_clk_get(struct camif_dev *camif)
 {
 	int ret, i;
+
+	for (i = 1; i < CLK_MAX_NUM; i++)
+		camif->clock[i] = ERR_PTR(-EINVAL);
 
 	for (i = 0; i < CLK_MAX_NUM; i++) {
 		camif->clock[i] = clk_get(camif->dev, camif_clocks[i]);
@@ -648,7 +651,6 @@ static struct platform_driver s3c_camif_driver = {
 	.id_table	= s3c_camif_driver_ids,
 	.driver = {
 		.name	= S3C_CAMIF_DRIVER_NAME,
-		.owner	= THIS_MODULE,
 		.pm	= &s3c_camif_pm_ops,
 	}
 };

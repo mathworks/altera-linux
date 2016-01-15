@@ -2,11 +2,13 @@
 # Makefile for the Nios2-specific parts of the memory manager.
 #
 
-obj-y := init.o
-
-obj-y += cacheflush$(MMU).o
-
-obj-$(CONFIG_MMU) += pgtable.o tlb.o uaccess.o fault.o
-obj-$(CONFIG_MMU) += ioremap.o extable.o mmu_context.o
-
-obj-y += dma-mapping$(MMU).o
+obj-y	+= cacheflush.o
+obj-y	+= dma-mapping.o
+obj-y	+= extable.o
+obj-y	+= fault.o
+obj-y	+= init.o
+obj-y	+= ioremap.o
+obj-y	+= mmu_context.o
+obj-y	+= pgtable.o
+obj-y	+= tlb.o
+obj-y	+= uaccess.o

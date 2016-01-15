@@ -1,6 +1,6 @@
 /*
  * Copyright (C) ST-Ericsson AB 2010
- * Author:	Sjur Brendeland sjur.brandeland@stericsson.com
+ * Author:	Sjur Brendeland
  * License terms: GNU General Public License (GPL) version 2
  */
 
@@ -124,7 +124,6 @@ static void caif_flow_ctrl(struct sock *sk, int mode)
 static int caif_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 {
 	int err;
-	int skb_len;
 	unsigned long flags;
 	struct sk_buff_head *list = &sk->sk_receive_queue;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -153,14 +152,13 @@ static int caif_queue_rcv_skb(struct sock *sk, struct sk_buff *skb)
 	 * may be freed by other threads of control pulling packets
 	 * from the queue.
 	 */
-	skb_len = skb->len;
 	spin_lock_irqsave(&list->lock, flags);
 	if (!sock_flag(sk, SOCK_DEAD))
 		__skb_queue_tail(list, skb);
 	spin_unlock_irqrestore(&list->lock, flags);
 
 	if (!sock_flag(sk, SOCK_DEAD))
-		sk->sk_data_ready(sk, skb_len);
+		sk->sk_data_ready(sk);
 	else
 		kfree_skb(skb);
 	return 0;
@@ -197,8 +195,8 @@ static void cfsk_put(struct cflayer *layr)
 
 /* Packet Control Callback function called from CAIF */
 static void caif_ctrl_cb(struct cflayer *layr,
-				enum caif_ctrlcmd flow,
-				int phyid)
+			 enum caif_ctrlcmd flow,
+			 int phyid)
 {
 	struct caifsock *cf_sk = container_of(layr, struct caifsock, layer);
 	switch (flow) {
@@ -274,7 +272,7 @@ static void caif_check_flow_release(struct sock *sk)
  * changed locking, address handling and added MSG_TRUNC.
  */
 static int caif_seqpkt_recvmsg(struct kiocb *iocb, struct socket *sock,
-				struct msghdr *m, size_t len, int flags)
+			       struct msghdr *m, size_t len, int flags)
 
 {
 	struct sock *sk = sock->sk;
@@ -283,10 +281,8 @@ static int caif_seqpkt_recvmsg(struct kiocb *iocb, struct socket *sock,
 	int copylen;
 
 	ret = -EOPNOTSUPP;
-	if (m->msg_flags&MSG_OOB)
+	if (flags & MSG_OOB)
 		goto read_error;
-
-	m->msg_namelen = 0;
 
 	skb = skb_recv_datagram(sk, flags, 0 , &ret);
 	if (!skb)
@@ -297,7 +293,7 @@ static int caif_seqpkt_recvmsg(struct kiocb *iocb, struct socket *sock,
 		copylen = len;
 	}
 
-	ret = skb_copy_datagram_iovec(skb, 0, m->msg_iov, copylen);
+	ret = skb_copy_datagram_msg(skb, 0, m, copylen);
 	if (ret)
 		goto out_free;
 
@@ -348,8 +344,8 @@ static long caif_stream_data_wait(struct sock *sk, long timeo)
  * changed locking calls, changed address handling.
  */
 static int caif_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
-				struct msghdr *msg, size_t size,
-				int flags)
+			       struct msghdr *msg, size_t size,
+			       int flags)
 {
 	struct sock *sk = sock->sk;
 	int copied = 0;
@@ -360,8 +356,6 @@ static int caif_stream_recvmsg(struct kiocb *iocb, struct socket *sock,
 	err = -EOPNOTSUPP;
 	if (flags&MSG_OOB)
 		goto out;
-
-	msg->msg_namelen = 0;
 
 	/*
 	 * Lock the socket to prevent queue disordering
@@ -424,7 +418,7 @@ unlock:
 		}
 		release_sock(sk);
 		chunk = min_t(unsigned int, skb->len, size);
-		if (memcpy_toiovec(msg->msg_iov, skb->data, chunk)) {
+		if (memcpy_to_msg(msg, skb->data, chunk)) {
 			skb_queue_head(&sk->sk_receive_queue, skb);
 			if (copied == 0)
 				copied = -EFAULT;
@@ -464,7 +458,7 @@ out:
  * CAIF flow-on and sock_writable.
  */
 static long caif_wait_for_flow_on(struct caifsock *cf_sk,
-				int wait_writeable, long timeo, int *err)
+				  int wait_writeable, long timeo, int *err)
 {
 	struct sock *sk = &cf_sk->sk;
 	DEFINE_WAIT(wait);
@@ -518,7 +512,7 @@ static int transmit_skb(struct sk_buff *skb, struct caifsock *cf_sk,
 
 /* Copied from af_unix:unix_dgram_sendmsg, and adapted to CAIF */
 static int caif_seqpkt_sendmsg(struct kiocb *kiocb, struct socket *sock,
-			struct msghdr *msg, size_t len)
+			       struct msghdr *msg, size_t len)
 {
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -541,7 +535,7 @@ static int caif_seqpkt_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		goto err;
 
 	ret = -EINVAL;
-	if (unlikely(msg->msg_iov->iov_base == NULL))
+	if (unlikely(msg->msg_iter.iov->iov_base == NULL))
 		goto err;
 	noblock = msg->msg_flags & MSG_DONTWAIT;
 
@@ -572,7 +566,7 @@ static int caif_seqpkt_sendmsg(struct kiocb *kiocb, struct socket *sock,
 
 	skb_reserve(skb, cf_sk->headroom);
 
-	ret = memcpy_fromiovec(skb_put(skb, len), msg->msg_iov, len);
+	ret = memcpy_from_msg(skb_put(skb, len), msg, len);
 
 	if (ret)
 		goto err;
@@ -593,7 +587,7 @@ err:
  * and other minor adaptations.
  */
 static int caif_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
-				struct msghdr *msg, size_t len)
+			       struct msghdr *msg, size_t len)
 {
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -647,7 +641,7 @@ static int caif_stream_sendmsg(struct kiocb *kiocb, struct socket *sock,
 		 */
 		size = min_t(int, size, skb_tailroom(skb));
 
-		err = memcpy_fromiovec(skb_put(skb, size), msg->msg_iov, size);
+		err = memcpy_from_msg(skb_put(skb, size), msg, size);
 		if (err) {
 			kfree_skb(skb);
 			goto out_err;
@@ -672,7 +666,7 @@ out_err:
 }
 
 static int setsockopt(struct socket *sock,
-			int lvl, int opt, char __user *ov, unsigned int ol)
+		      int lvl, int opt, char __user *ov, unsigned int ol)
 {
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
@@ -914,8 +908,7 @@ static int caif_release(struct socket *sock)
 	sock->sk = NULL;
 
 	WARN_ON(IS_ERR(cf_sk->debugfs_socket_dir));
-	if (cf_sk->debugfs_socket_dir != NULL)
-		debugfs_remove_recursive(cf_sk->debugfs_socket_dir);
+	debugfs_remove_recursive(cf_sk->debugfs_socket_dir);
 
 	lock_sock(&(cf_sk->sk));
 	sk->sk_state = CAIF_DISCONNECTED;
@@ -934,7 +927,7 @@ static int caif_release(struct socket *sock)
 
 /* Copied from af_unix.c:unix_poll(), added CAIF tx_flow handling */
 static unsigned int caif_poll(struct file *file,
-				struct socket *sock, poll_table *wait)
+			      struct socket *sock, poll_table *wait)
 {
 	struct sock *sk = sock->sk;
 	unsigned int mask;
@@ -1024,7 +1017,7 @@ static void caif_sock_destructor(struct sock *sk)
 }
 
 static int caif_create(struct net *net, struct socket *sock, int protocol,
-			int kern)
+		       int kern)
 {
 	struct sock *sk = NULL;
 	struct caifsock *cf_sk = NULL;

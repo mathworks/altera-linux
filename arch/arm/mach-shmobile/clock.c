@@ -14,15 +14,26 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
- *
  */
+
+#include <linux/export.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/sh_clk.h>
-#include <linux/export.h>
+
+#include "clock.h"
+#include "common.h"
+
+unsigned long shmobile_fixed_ratio_clk_recalc(struct clk *clk)
+{
+	struct clk_ratio *p = clk->priv;
+
+	return clk->parent->rate / p->div * p->mul;
+};
+
+struct sh_clk_ops shmobile_fixed_ratio_clk_ops = {
+	.recalc	= shmobile_fixed_ratio_clk_recalc,
+};
 
 int __init shmobile_clk_init(void)
 {

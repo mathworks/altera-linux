@@ -13,7 +13,7 @@
  *    Copyright (C) 2000 Grant Grundler <grundler with parisc-linux.org>
  *    Copyright (C) 2001 Alan Modra <amodra at parisc-linux.org>
  *    Copyright (C) 2001-2002 Ryan Bradetich <rbrad at parisc-linux.org>
- *    Copyright (C) 2001-2007 Helge Deller <deller at parisc-linux.org>
+ *    Copyright (C) 2001-2014 Helge Deller <deller@gmx.de>
  *    Copyright (C) 2002 Randolph Chung <tausq with parisc-linux.org>
  *
  *
@@ -49,6 +49,7 @@
 #include <linux/kallsyms.h>
 #include <linux/uaccess.h>
 #include <linux/rcupdate.h>
+#include <linux/random.h>
 
 #include <asm/io.h>
 #include <asm/asm-offsets.h>
@@ -58,28 +59,6 @@
 #include <asm/pgalloc.h>
 #include <asm/unwind.h>
 #include <asm/sections.h>
-
-/*
- * The idle thread. There's no useful work to be
- * done, so just try to conserve power and have a
- * low exit latency (ie sit in a loop waiting for
- * somebody to say that they'd like to reschedule)
- */
-void cpu_idle(void)
-{
-	set_thread_flag(TIF_POLLING_NRFLAG);
-
-	/* endless idle loop with no priority at all */
-	while (1) {
-		rcu_idle_enter();
-		while (!need_resched())
-			barrier();
-		rcu_idle_exit();
-		schedule_preempt_disabled();
-		check_pgt_cache();
-	}
-}
-
 
 #define COMMAND_GLOBAL  F_EXTEND(0xfffe0030)
 #define CMD_RESET       5       /* reset any module */
@@ -214,9 +193,7 @@ copy_thread(unsigned long clone_flags, unsigned long usp,
 	 * Make them const so the compiler knows they live in .text */
 	extern void * const ret_from_kernel_thread;
 	extern void * const child_return;
-#ifdef CONFIG_HPUX
-	extern void * const hpux_child_return;
-#endif
+
 	if (unlikely(p->flags & PF_KTHREAD)) {
 		memset(cregs, 0, sizeof(struct pt_regs));
 		if (!usp) /* idle thread */
@@ -250,15 +227,8 @@ copy_thread(unsigned long clone_flags, unsigned long usp,
 				cregs->gr[30] = usp;
 		}
 		cregs->ksp = (unsigned long)stack + THREAD_SZ_ALGN + FRAME_SIZE;
-		if (personality(p->personality) == PER_HPUX) {
-#ifdef CONFIG_HPUX
-			cregs->kpc = (unsigned long) &hpux_child_return;
-#else
-			BUG();
-#endif
-		} else {
-			cregs->kpc = (unsigned long) &child_return;
-		}
+		cregs->kpc = (unsigned long) &child_return;
+
 		/* Setup thread TLS area from the 4th parameter in clone */
 		if (clone_flags & CLONE_SETTLS)
 			cregs->cr27 = cregs->gr[23];
@@ -308,3 +278,21 @@ void *dereference_function_descriptor(void *ptr)
 	return ptr;
 }
 #endif
+
+static inline unsigned long brk_rnd(void)
+{
+	/* 8MB for 32bit, 1GB for 64bit */
+	if (is_32bit_task())
+		return (get_random_int() & 0x7ffUL) << PAGE_SHIFT;
+	else
+		return (get_random_int() & 0x3ffffUL) << PAGE_SHIFT;
+}
+
+unsigned long arch_randomize_brk(struct mm_struct *mm)
+{
+	unsigned long ret = PAGE_ALIGN(mm->brk + brk_rnd());
+
+	if (ret < mm->brk)
+		return mm->brk;
+	return ret;
+}

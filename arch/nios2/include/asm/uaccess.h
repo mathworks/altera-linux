@@ -5,8 +5,6 @@
  * Copyright (C) 2009, Wind River Systems Inc
  *   Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
  *
- * Based on asm/uaccess.h from m68knommu
- *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -41,9 +39,7 @@ struct exception_table_entry {
 	unsigned long fixup;
 };
 
-#ifdef CONFIG_MMU
 extern int fixup_exception(struct pt_regs *regs);
-#endif
 
 /*
  * Segment stuff
@@ -59,26 +55,14 @@ extern int fixup_exception(struct pt_regs *regs);
 
 #define segment_eq(a, b)	((a).seg == (b).seg)
 
-#ifdef CONFIG_MMU
 #define __access_ok(addr, len)			\
 	(((signed long)(((long)get_fs().seg) &	\
 		((long)(addr) | (((long)(addr)) + (len)) | (len)))) == 0)
-#else
-static inline int __access_ok(unsigned long addr, unsigned long size)
-{
-	addr &= ~CONFIG_IO_REGION_BASE;	/* ignore 'uncached' bit */
-	return ((addr >= CONFIG_MEM_BASE) && ((addr + size) <= memory_end));
-}
-#endif /* CONFIG_MMU */
 
 #define access_ok(type, addr, len)		\
 	likely(__access_ok((unsigned long)(addr), (unsigned long)(len)))
 
-#ifdef CONFIG_MMU
 # define __EX_TABLE_SECTION	".section __ex_table,\"a\"\n"
-#else
-# define __EX_TABLE_SECTION	".section .discard,\"a\"\n"
-#endif
 
 /*
  * Zero Userspace
@@ -111,7 +95,6 @@ static inline unsigned long __must_check clear_user(void __user *to,
 	return __clear_user(to, n);
 }
 
-#ifdef CONFIG_MMU
 extern long __copy_from_user(void *to, const void __user *from,
 				unsigned long n);
 extern long __copy_to_user(void __user *to, const void *from, unsigned long n);
@@ -136,43 +119,8 @@ extern long strncpy_from_user(char *__to, const char __user *__from,
 				long __len);
 extern long strnlen_user(const char __user *s, long n);
 
-#else /* CONFIG_MMU */
-# define copy_from_user(to, from, n)	(memcpy(to, from, n), 0)
-# define copy_to_user(to, from, n)	(memcpy(to, from, n), 0)
-
-# define __copy_from_user(to, from, n)	copy_from_user(to, from, n)
-# define __copy_to_user(to, from, n)	copy_to_user(to, from, n)
-
-static inline long strncpy_from_user(char *dst, const char *src, long count)
-{
-	char *tmp;
-	strncpy(dst, src, count);
-	for (tmp = dst; *tmp && count > 0; tmp++, count--)
-		;
-	return tmp - dst; /* DAVIDM should we count a NUL ?  check getname */
-}
-
-/*
- * Return the size of a string (including the ending 0)
- *
- * Return 0 on exception, a value greater than N if too long
- */
-static inline long strnlen_user(const char *src, long n)
-{
-	return strlen(src) + 1; /* DAVIDM make safer */
-}
-
-#endif /* CONFIG_MMU */
-
 #define __copy_from_user_inatomic	__copy_from_user
 #define __copy_to_user_inatomic		__copy_to_user
-
-/*
- * TODO: get_user/put_user stuff below can probably be the same for MMU and
- * NOMMU.
- */
-
-#ifdef CONFIG_MMU
 
 /* Optimized macros */
 #define __get_user_asm(val, insn, addr, err)				\
@@ -218,9 +166,9 @@ do {									\
 	({								\
 	long __gu_err = -EFAULT;					\
 	const __typeof__(*(ptr)) __user *__gu_ptr = (ptr);		\
-	unsigned long __gu_val; /* FIXME: should be __typeof__ */	\
+	unsigned long __gu_val;						\
 	__get_user_common(__gu_val, sizeof(*(ptr)), __gu_ptr, __gu_err);\
-	(x) = (__typeof__(x))__gu_val;					\
+	(x) = (__force __typeof__(x))__gu_val;				\
 	__gu_err;							\
 	})
 
@@ -232,7 +180,7 @@ do {									\
 	if (access_ok(VERIFY_READ,  __gu_ptr, sizeof(*__gu_ptr)))	\
 		__get_user_common(__gu_val, sizeof(*__gu_ptr),		\
 			__gu_ptr, __gu_err);				\
-	(x) = (__typeof__(x))__gu_val;					\
+	(x) = (__force __typeof__(x))__gu_val;				\
 	__gu_err;							\
 })
 
@@ -279,58 +227,5 @@ do {									\
 })
 
 #define __put_user(x, ptr) put_user(x, ptr)
-
-#else /* CONFIG_MMU */
-
-/*
- * These are the main single-value transfer routines.  They automatically
- * use the right size if we just have the right pointer type.
- */
-
-#define put_user(x, ptr)				\
-({							\
-	int __pu_err = 0;				\
-	__typeof__(*(ptr)) __pu_val = (x);		\
-	switch (sizeof(*(ptr))) {			\
-	case 1:						\
-	case 2:						\
-	case 4:						\
-	case 8:						\
-		memcpy(ptr, &__pu_val, sizeof(*(ptr)));	\
-		break;					\
-	default:					\
-		__pu_err = __put_user_bad();		\
-		break;					\
-	}						\
-	__pu_err;					\
-})
-#define __put_user(x, ptr) put_user(x, ptr)
-
-extern int __put_user_bad(void);
-
-#define get_user(x, ptr)				\
-({							\
-	int __gu_err = 0;				\
-	typeof(*(ptr)) __gu_val = 0;			\
-	switch (sizeof(*(ptr))) {			\
-	case 1:						\
-	case 2:						\
-	case 4:						\
-	case 8:						\
-		memcpy(&__gu_val, ptr, sizeof(*(ptr)));	\
-		break;					\
-	default:					\
-		__gu_val = 0;				\
-		__gu_err = __get_user_bad();		\
-		break;					\
-	}						\
-	(x) = __gu_val;					\
-	__gu_err;					\
-})
-#define __get_user(x, ptr) get_user(x, ptr)
-
-extern int __get_user_bad(void);
-
-#endif /* CONFIG_MMU */
 
 #endif /* _ASM_NIOS2_UACCESS_H */

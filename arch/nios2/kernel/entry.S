@@ -1,26 +1,16 @@
 /*
  * linux/arch/nios2/kernel/entry.S
  *
- * Copyright (C) 2013  Altera Corporation
+ * Copyright (C) 2013-2014  Altera Corporation
  * Copyright (C) 2009, Wind River Systems Inc
  *
  * Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
- *
- * Based on:
- *
- * linux/arch/nios2/kernel/entry.S
  *
  *  Copyright (C) 1999-2002, Greg Ungerer (gerg@snapgear.com)
  *  Copyright (C) 1998  D. Jeff Dionne <jeff@lineo.ca>,
  *                      Kenneth Albanowski <kjahds@kjahds.com>,
  *  Copyright (C) 2000  Lineo Inc. (www.lineo.com)
  *  Copyright (C) 2004  Microtronix Datacom Ltd.
- *
- * Based on:
- *
- *  linux/arch/m68knommu/kernel/entry.S
- *
- *  Copyright (C) 1991, 1992  Linus Torvalds
  *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
@@ -54,7 +44,27 @@
 .endif
 .endm
 
-/* FIXME: Lots of these exceptions need to be handled */
+.macro	kuser_cmpxchg_check
+	/*
+	 * Make sure our user space atomic helper is restarted if it was
+	 * interrupted in a critical region.
+	 * ea-4 = address of interrupted insn (ea must be preserved).
+	 * sp = saved regs.
+	 * cmpxchg_ldw = first critical insn, cmpxchg_stw = last critical insn.
+	 * If ea <= cmpxchg_stw and ea > cmpxchg_ldw then saved EA is set to
+	 * cmpxchg_ldw + 4.
+	*/
+	/* et = cmpxchg_stw + 4 */
+	movui   et, (KUSER_BASE + 4 + (cmpxchg_stw - __kuser_helper_start))
+	bgtu	ea, et, 1f
+
+	subi	et, et, (cmpxchg_stw - cmpxchg_ldw) /* et = cmpxchg_ldw + 4 */
+	bltu	ea, et, 1f
+	stw	et, PT_EA(sp)	/* fix up EA */
+	mov	ea, et
+1:
+.endm
+
 .section .rodata
 .align 4
 exception_table:
@@ -82,41 +92,41 @@ exception_table:
 
 trap_table:
 	.word	handle_system_call	/* 0  */
-	.word	instruction_trap	/* 1  */
-	.word	instruction_trap	/* 2  */
-	.word	instruction_trap	/* 3  */
-	.word	instruction_trap	/* 4  */
-	.word	instruction_trap	/* 5  */
-	.word	instruction_trap	/* 6  */
-	.word	instruction_trap	/* 7  */
-	.word	instruction_trap	/* 8  */
-	.word	instruction_trap	/* 9  */
-	.word	instruction_trap	/* 10 */
-	.word	instruction_trap	/* 11 */
-	.word	instruction_trap	/* 12 */
-	.word	instruction_trap	/* 13 */
-	.word	instruction_trap	/* 14 */
-	.word	instruction_trap	/* 15 */
-	.word	instruction_trap	/* 16 */
-	.word	instruction_trap	/* 17 */
-	.word	instruction_trap	/* 18 */
-	.word	instruction_trap	/* 19 */
-	.word	instruction_trap	/* 20 */
-	.word	instruction_trap	/* 21 */
-	.word	instruction_trap	/* 22 */
-	.word	instruction_trap	/* 23 */
-	.word	instruction_trap	/* 24 */
-	.word	instruction_trap	/* 25 */
-	.word	instruction_trap	/* 26 */
-	.word	instruction_trap	/* 27 */
-	.word	instruction_trap	/* 28 */
-	.word	instruction_trap	/* 29 */
+	.word	handle_trap_1		/* 1  */
+	.word	handle_trap_2		/* 2  */
+	.word	handle_trap_3		/* 3  */
+	.word	handle_trap_reserved	/* 4  */
+	.word	handle_trap_reserved	/* 5  */
+	.word	handle_trap_reserved	/* 6  */
+	.word	handle_trap_reserved	/* 7  */
+	.word	handle_trap_reserved	/* 8  */
+	.word	handle_trap_reserved	/* 9  */
+	.word	handle_trap_reserved	/* 10 */
+	.word	handle_trap_reserved	/* 11 */
+	.word	handle_trap_reserved	/* 12 */
+	.word	handle_trap_reserved	/* 13 */
+	.word	handle_trap_reserved	/* 14 */
+	.word	handle_trap_reserved	/* 15 */
+	.word	handle_trap_reserved	/* 16 */
+	.word	handle_trap_reserved	/* 17 */
+	.word	handle_trap_reserved	/* 18 */
+	.word	handle_trap_reserved	/* 19 */
+	.word	handle_trap_reserved	/* 20 */
+	.word	handle_trap_reserved	/* 21 */
+	.word	handle_trap_reserved	/* 22 */
+	.word	handle_trap_reserved	/* 23 */
+	.word	handle_trap_reserved	/* 24 */
+	.word	handle_trap_reserved	/* 25 */
+	.word	handle_trap_reserved	/* 26 */
+	.word	handle_trap_reserved	/* 27 */
+	.word	handle_trap_reserved	/* 28 */
+	.word	handle_trap_reserved	/* 29 */
 #ifdef CONFIG_KGDB
 	.word	handle_kgdb_breakpoint	/* 30 KGDB breakpoint */
 #else
-	.word	instruction_trap	// 30
+	.word	instruction_trap		/* 30 */
 #endif
-	.word	handle_breakpoint	// 31
+	.word	handle_breakpoint	/* 31 */
 
 .text
 .set noat
@@ -124,9 +134,12 @@ trap_table:
 
 ENTRY(inthandler)
 	SAVE_ALL
+
+	kuser_cmpxchg_check
+
 	/* Clear EH bit before we get a new excpetion in the kernel
 	 * and after we have saved it to the exception frame. This is done
-	 * wheter it's trap, tlb-miss or interrupt. If we don't do this
+	 * whether it's trap, tlb-miss or interrupt. If we don't do this
 	 * estatus is not updated the next exception.
 	 */
 	rdctl	r24, status
@@ -148,7 +161,7 @@ ENTRY(inthandler)
  ***********************************************************************
  */
 ENTRY(handle_trap)
-	ldw	r24, -4(ea)	/* instruction that caused the exception */
+	ldwio	r24, -4(ea)	/* instruction that caused the exception */
 	srli	r24, r24, 4
 	andi	r24, r24, 0x7c
 	movia	r9,trap_table
@@ -171,8 +184,9 @@ ENTRY(handle_system_call)
 	ldw	r4, PT_R4(sp)
 	ldw	r5, PT_R5(sp)
 
+local_restart:
 	/* Check that the requested system call is within limits */
-	movui	r1, NR_syscalls
+	movui	r1, __NR_syscalls
 	bgeu	r2, r1, ret_invsyscall
 	slli	r1, r2, 2
 	movhi	r11, %hiadj(sys_call_table)
@@ -180,13 +194,10 @@ ENTRY(handle_system_call)
 	ldw	r1, %lo(sys_call_table)(r1)
 	beq	r1, r0, ret_invsyscall
 
-	/* Get thread info pointer */
-	movi	r11, %lo(0xfffff000)
-	and	r11, sp, r11
-	ldw	r11, TI_FLAGS(r11)
-
-	/* If someone is ptrace:ing us, take the long way. */
-	BTBNZ	r11, r11, TIF_SYSCALL_TRACE, traced_system_call
+	/* Check if we are being traced */
+	GET_THREAD_INFO r11
+	ldw	r11,TI_FLAGS(r11)
+	BTBNZ   r11,r11,TIF_SYSCALL_TRACE,traced_system_call
 
 	/* Execute the system call */
 	callr	r1
@@ -198,8 +209,6 @@ ENTRY(handle_system_call)
 	 *   Set r7 to 0.
 	 * The sigreturn system calls will skip the code below by
 	 * adding to register ra. To avoid destroying registers
-	 *
-	 * FIXME: We probably need an orig_r7
 	 */
 translate_rc_and_ret:
 	movi	r1, 0
@@ -229,24 +238,22 @@ ret_invsyscall:
 	br	translate_rc_and_ret
 
 	/* This implements the same as above, except it calls
-	 * syscall_trace before and after the syscall in order
-	 * for utilities like strace and gdb to work.
+	 * do_syscall_trace_enter and do_syscall_trace_exit before and after the
+	 * syscall in order for utilities like strace and gdb to work.
 	 */
 traced_system_call:
 	SAVE_SWITCH_STACK
-	call	syscall_trace
+	call	do_syscall_trace_enter
 	RESTORE_SWITCH_STACK
 
-	/* r2 and r7-r9 might be destroyed  by syscall_trace and we need to
-	 * restore them before calling our syscall.
-	 */
+	/* Create system call register arguments. The 5th and 6th
+	   arguments on stack are already in place at the beginning
+	   of pt_regs. */
 	ldw	r2, PT_R2(sp)
 	ldw	r4, PT_R4(sp)
 	ldw	r5, PT_R5(sp)
 	ldw	r6, PT_R6(sp)
 	ldw	r7, PT_R7(sp)
-	ldw	r8, PT_R8(sp)
-	ldw	r9, PT_R9(sp)
 
 	/* Fetch the syscall function, we don't need to check the boundaries
 	 * since this is already done.
@@ -265,8 +272,6 @@ traced_system_call:
 	 *   Set r7 to 0.
 	 * The sigreturn system calls will skip the code below by
 	 * adding to register ra. To avoid destroying registers
-	 *
-	 * FIXME: We probably need an orig_r7
 	 */
 translate_rc_and_ret2:
 	movi	r1, 0
@@ -278,7 +283,7 @@ translate_rc_and_ret2:
 	stw	r1, PT_R7(sp)
 end_translate_rc_and_ret2:
 	SAVE_SWITCH_STACK
-	call	syscall_trace
+	call	do_syscall_trace_exit
 	RESTORE_SWITCH_STACK
 	br	ret_from_exception
 
@@ -298,13 +303,22 @@ Lsignal_return:
 	beq	r1, r0, restore_all
 	mov	r4, sp			/* pt_regs */
 	SAVE_SWITCH_STACK
-	mov	r5, r0			/* oldset = 0 */
-	movi	r6, 1			/* in_syscall = 1 */
 	call	do_notify_resume
+	beq	r2, r0, no_work_pending
 	RESTORE_SWITCH_STACK
-	br	restore_all
+	/* prepare restart syscall here without leaving kernel */
+	ldw	r2, PT_R2(sp)	/* reload syscall number in r2 */
+	ldw 	r4, PT_R4(sp)	/* reload syscall arguments r4-r9 */
+	ldw 	r5, PT_R5(sp)
+	ldw 	r6, PT_R6(sp)
+	ldw 	r7, PT_R7(sp)
+	ldw 	r8, PT_R8(sp)
+	ldw 	r9, PT_R9(sp)
+	br	local_restart	/* restart syscall */
 
-
+no_work_pending:
+	RESTORE_SWITCH_STACK
+	br	ret_from_exception
 
 /***********************************************************************
  * Handle external interrupts.
@@ -345,7 +359,7 @@ external_interrupt:
 	rdctl	r9, ienable	/* Isolate possible interrupts */
 	and	r12, r12, r9
 	bne	r12, r0, 2b
-	/* br	ret_from_interrupt */ /* fall throught to ret_from_interrupt */
+	/* br	ret_from_interrupt */ /* fall through to ret_from_interrupt */
 
 ENTRY(ret_from_interrupt)
 	ldw	r1, PT_ESTATUS(sp)	/* check if returning to kernel */
@@ -355,112 +369,33 @@ ENTRY(ret_from_interrupt)
 	GET_THREAD_INFO	r1
 	ldw	r4, TI_PREEMPT_COUNT(r1)
 	bne	r4, r0, restore_all
-
-need_resched:
 	ldw	r4, TI_FLAGS(r1)		/* ? Need resched set */
 	BTBZ	r10, r4, TIF_NEED_RESCHED, restore_all
 	ldw	r4, PT_ESTATUS(sp)	/* ? Interrupts off */
 	andi	r10, r4, ESTATUS_EPIE
 	beq	r10, r0, restore_all
-	movia	r4, PREEMPT_ACTIVE
-	stw	r4, TI_PREEMPT_COUNT(r1)
-	rdctl	r10, status		/* enable intrs again */
-	ori	r10, r10 ,STATUS_PIE
-	wrctl	status, r10
-	PUSH	r1
-	call	schedule
-	POP	r1
-	mov	r4, r0
-	stw	r4, TI_PREEMPT_COUNT(r1)
-	rdctl	r10, status		/* disable intrs */
-	andi	r10, r10, %lo(~STATUS_PIE)
-	wrctl	status, r10
-	br	need_resched
-#else
-	br	restore_all
+	call	preempt_schedule_irq
 #endif
-
-/***********************************************************************
- * Syscalls implemented in assembly
- ***********************************************************************
- */
-
-ENTRY(sys_nios2cmpxchg)
-
-	/* r4 pointer to exchange variable */
-	/* r5 old value */
-	/* r6 new value */
-	/* r8 - old interrupt status (assert this to enabled?) */
-	/* r9 - temp */
-	/* Disable interrupts (keep old status in r8) */
-	rdctl	r8, status
-	andi	r9, r8, %lo(~STATUS_PIE)
-	wrctl	status, r9
-
-	/* Make sure we skip the r2/r7 translation code when we return. */
-	addi	ra, ra, (end_translate_rc_and_ret - translate_rc_and_ret)
-
-ldw1:	ldw	r2, 0(r4)
-	bne	r2, r5, .L6
-
-	/* We had a match, store the new value */
-stw1:	stw	r6, 0(r4)
-.L6:
-	/* Reenable interrupts */
-	wrctl	status, r8
-
-	/* Store return value */
-	stw	r2, PT_R2(sp)
-	/* Indicate everything is ok */
-	movi	r2, 0
-	stw	r2, PT_R7(sp)
-	ret
-fault:
-	movi	r2, EFAULT
-	stw	r2, PT_R2(sp)
-	movi	r2, 1
-	stw	r2, PT_R7(sp)
-	wrctl	status, r8
-	ret
-
-	/* setup the exception table */
-	.section __ex_table, "a"
-	.word ldw1, fault
-	.word stw1, fault
-	.previous
-
-
+	br	restore_all
 
 /***********************************************************************
  * A few syscall wrappers
  ***********************************************************************
  */
-
-ENTRY(__sys_fork)
+/*
+ * int clone(unsigned long clone_flags, unsigned long newsp,
+ *		int __user * parent_tidptr, int __user * child_tidptr,
+ *		int tls_val)
+ */
+ENTRY(sys_clone)
 	SAVE_SWITCH_STACK
-	call sys_fork
+	addi	sp, sp, -4
+	stw	r7, 0(sp)	/* Pass 5th arg thru stack */
+	mov	r7, r6		/* 4th arg is 3rd of clone() */
+	mov	r6, zero	/* 3rd arg always 0 */
+	call	do_fork
+	addi	sp, sp, 4
 	RESTORE_SWITCH_STACK
-	ret
-
-ENTRY(__sys_vfork)
-	SAVE_SWITCH_STACK
-	call sys_vfork
-	RESTORE_SWITCH_STACK
-	ret
-
-ENTRY(__sys_clone)
-	mov	r4,sp
-	SAVE_SWITCH_STACK
-	call	nios2_clone
-	RESTORE_SWITCH_STACK
-	ret
-
-ENTRY(sys_sigreturn)
-	mov	r4, sp
-	SAVE_SWITCH_STACK
-	call	do_sigreturn
-	RESTORE_SWITCH_STACK
-	addi	ra, ra, (end_translate_rc_and_ret - translate_rc_and_ret)
 	ret
 
 ENTRY(sys_rt_sigreturn)
@@ -494,7 +429,7 @@ handle_breakpoint:
 	call	breakpoint_c
 	br	ret_from_exception
 
-#ifdef CONFIG_ALIGNMENT_TRAP
+#ifdef CONFIG_NIOS2_ALIGNMENT_TRAP
 handle_unaligned:
 	SAVE_SWITCH_STACK
 	call	handle_unaligned_c
@@ -519,6 +454,19 @@ handle_kgdb_breakpoint:
 	call	kgdb_breakpoint_c
 	br	ret_from_exception
 #endif
+
+handle_trap_1:
+	call	handle_trap_1_c
+	br	ret_from_exception
+
+handle_trap_2:
+	call	handle_trap_2_c
+	br	ret_from_exception
+
+handle_trap_3:
+handle_trap_reserved:
+	call	handle_trap_3_c
+	br	ret_from_exception
 
 /*
  * Beware - when entering resume, prev (the current task) is
@@ -554,3 +502,61 @@ ENTRY(ret_from_kernel_thread)
 	mov	r4,r17	/* arg */
 	callr	r16	/* function */
 	br	ret_from_exception
+
+/*
+ * Kernel user helpers.
+ *
+ * Each segment is 64-byte aligned and will be mapped to the <User space>.
+ * New segments (if ever needed) must be added after the existing ones.
+ * This mechanism should be used only for things that are really small and
+ * justified, and not be abused freely.
+ *
+ */
+
+ /* Filling pads with undefined instructions. */
+.macro	kuser_pad sym size
+	.if	((. - \sym) & 3)
+	.rept	(4 - (. - \sym) & 3)
+	.byte	0
+	.endr
+	.endif
+	.rept	((\size - (. - \sym)) / 4)
+	.word	0xdeadbeef
+	.endr
+.endm
+
+	.align	6
+	.globl	__kuser_helper_start
+__kuser_helper_start:
+
+__kuser_helper_version:				/* @ 0x1000 */
+	.word	((__kuser_helper_end - __kuser_helper_start) >> 6)
+
+__kuser_cmpxchg:				/* @ 0x1004 */
+	/*
+	 * r4 pointer to exchange variable
+	 * r5 old value
+	 * r6 new value
+	 */
+cmpxchg_ldw:
+	ldw	r2, 0(r4)			/* load current value */
+	sub	r2, r2, r5			/* compare with old value */
+	bne	r2, zero, cmpxchg_ret
+
+	/* We had a match, store the new value */
+cmpxchg_stw:
+	stw	r6, 0(r4)
+cmpxchg_ret:
+	ret
+
+	kuser_pad __kuser_cmpxchg, 64
+
+	.globl	__kuser_sigtramp
+__kuser_sigtramp:
+	movi	r2, __NR_rt_sigreturn
+	trap
+
+	kuser_pad __kuser_sigtramp, 64
+
+	.globl	__kuser_helper_end
+__kuser_helper_end:

@@ -31,7 +31,6 @@
 #include <linux/i2c-pxa.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
-#include <linux/of_i2c.h>
 #include <linux/platform_device.h>
 #include <linux/err.h>
 #include <linux/clk.h>
@@ -110,6 +109,8 @@ MODULE_DEVICE_TABLE(platform, i2c_pxa_id_table);
 #define ICR_SADIE	(1 << 13)	   /* slave address detected int enable */
 #define ICR_UR		(1 << 14)	   /* unit reset */
 #define ICR_FM		(1 << 15)	   /* fast mode */
+#define ICR_HS		(1 << 16)	   /* High Speed mode */
+#define ICR_GPIOEN	(1 << 19)	   /* enable GPIO mode for SCL in HS */
 
 #define ISR_RWM		(1 << 0)	   /* read/write mode */
 #define ISR_ACKNAK	(1 << 1)	   /* ack/nak status */
@@ -155,6 +156,10 @@ struct pxa_i2c {
 	int			irq;
 	unsigned int		use_pio :1;
 	unsigned int		fast_mode :1;
+	unsigned int		high_mode:1;
+	unsigned char		master_code;
+	unsigned long		rate;
+	bool			highmode_enter;
 };
 
 #define _IBMR(i2c)	((i2c)->reg_ibmr)
@@ -459,6 +464,7 @@ static void i2c_pxa_reset(struct pxa_i2c *i2c)
 
 	/* set control register values */
 	writel(I2C_ICR_INIT | (i2c->fast_mode ? ICR_FM : 0), _ICR(i2c));
+	writel(readl(_ICR(i2c)) | (i2c->high_mode ? ICR_HS : 0), _ICR(i2c));
 
 #ifdef CONFIG_I2C_PXA_SLAVE
 	dev_info(&i2c->adap.dev, "Enabling slave mode\n");
@@ -680,6 +686,34 @@ static int i2c_pxa_pio_set_master(struct pxa_i2c *i2c)
 	return 0;
 }
 
+/*
+ * PXA I2C send master code
+ * 1. Load master code to IDBR and send it.
+ *    Note for HS mode, set ICR [GPIOEN].
+ * 2. Wait until win arbitration.
+ */
+static int i2c_pxa_send_mastercode(struct pxa_i2c *i2c)
+{
+	u32 icr;
+	long timeout;
+
+	spin_lock_irq(&i2c->lock);
+	i2c->highmode_enter = true;
+	writel(i2c->master_code, _IDBR(i2c));
+
+	icr = readl(_ICR(i2c)) & ~(ICR_STOP | ICR_ALDIE);
+	icr |= ICR_GPIOEN | ICR_START | ICR_TB | ICR_ITEIE;
+	writel(icr, _ICR(i2c));
+
+	spin_unlock_irq(&i2c->lock);
+	timeout = wait_event_timeout(i2c->wait,
+			i2c->highmode_enter == false, HZ * 1);
+
+	i2c->highmode_enter = false;
+
+	return (timeout == 0) ? I2C_RETRY : 0;
+}
+
 static int i2c_pxa_do_pio_xfer(struct pxa_i2c *i2c,
 			       struct i2c_msg *msg, int num)
 {
@@ -741,6 +775,14 @@ static int i2c_pxa_do_xfer(struct pxa_i2c *i2c, struct i2c_msg *msg, int num)
 	if (ret) {
 		dev_err(&i2c->adap.dev, "i2c_pxa_set_master: error %d\n", ret);
 		goto out;
+	}
+
+	if (i2c->high_mode) {
+		ret = i2c_pxa_send_mastercode(i2c);
+		if (ret) {
+			dev_err(&i2c->adap.dev, "i2c_pxa_send_mastercode timeout\n");
+			goto out;
+			}
 	}
 
 	spin_lock_irq(&i2c->lock);
@@ -843,7 +885,9 @@ static void i2c_pxa_irq_txempty(struct pxa_i2c *i2c, u32 isr)
 		return; /* ignore */
 	}
 
-	if (isr & ISR_BED) {
+	if ((isr & ISR_BED) &&
+		(!((i2c->msg->flags & I2C_M_IGNORE_NAK) &&
+			(isr & ISR_ACKNAK)))) {
 		int ret = BUS_ERROR;
 
 		/*
@@ -877,12 +921,14 @@ static void i2c_pxa_irq_txempty(struct pxa_i2c *i2c, u32 isr)
 		icr |= ICR_ALDIE | ICR_TB;
 
 		/*
-		 * If this is the last byte of the last message, send
-		 * a STOP.
+		 * If this is the last byte of the last message or last byte
+		 * of any message with I2C_M_STOP (e.g. SCCB), send a STOP.
 		 */
-		if (i2c->msg_ptr == i2c->msg->len &&
-		    i2c->msg_idx == i2c->msg_num - 1)
-			icr |= ICR_STOP;
+		if ((i2c->msg_ptr == i2c->msg->len) &&
+			((i2c->msg->flags & I2C_M_STOP) ||
+			(i2c->msg_idx == i2c->msg_num - 1)))
+				icr |= ICR_STOP;
+
 	} else if (i2c->msg_idx < i2c->msg_num - 1) {
 		/*
 		 * Next segment of the message.
@@ -990,11 +1036,14 @@ static irqreturn_t i2c_pxa_handler(int this_irq, void *dev_id)
 			i2c_pxa_slave_txempty(i2c, isr);
 		if (isr & ISR_IRF)
 			i2c_pxa_slave_rxfull(i2c, isr);
-	} else if (i2c->msg) {
+	} else if (i2c->msg && (!i2c->highmode_enter)) {
 		if (isr & ISR_ITE)
 			i2c_pxa_irq_txempty(i2c, isr);
 		if (isr & ISR_IRF)
 			i2c_pxa_irq_rxfull(i2c, isr);
+	} else if ((isr & ISR_ITE) && i2c->highmode_enter) {
+		i2c->highmode_enter = false;
+		wake_up(&i2c->wait);
 	} else {
 		i2c_pxa_scream_blue_murder(i2c, "spurious irq");
 	}
@@ -1026,7 +1075,8 @@ static int i2c_pxa_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num
 
 static u32 i2c_pxa_functionality(struct i2c_adapter *adap)
 {
-	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL;
+	return I2C_FUNC_I2C | I2C_FUNC_SMBUS_EMUL |
+		I2C_FUNC_PROTOCOL_MANGLING | I2C_FUNC_NOSTART;
 }
 
 static const struct i2c_algorithm i2c_pxa_algorithm = {
@@ -1039,7 +1089,7 @@ static const struct i2c_algorithm i2c_pxa_pio_algorithm = {
 	.functionality	= i2c_pxa_functionality,
 };
 
-static struct of_device_id i2c_pxa_dt_ids[] = {
+static const struct of_device_id i2c_pxa_dt_ids[] = {
 	{ .compatible = "mrvl,pxa-i2c", .data = (void *)REGS_PXA2XX },
 	{ .compatible = "mrvl,pwri2c", .data = (void *)REGS_PXA3XX },
 	{ .compatible = "mrvl,mmp-twsi", .data = (void *)REGS_PXA2XX },
@@ -1053,16 +1103,13 @@ static int i2c_pxa_probe_dt(struct platform_device *pdev, struct pxa_i2c *i2c,
 	struct device_node *np = pdev->dev.of_node;
 	const struct of_device_id *of_id =
 			of_match_device(i2c_pxa_dt_ids, &pdev->dev);
-	int ret;
 
 	if (!of_id)
 		return 1;
-	ret = of_alias_get_id(np, "i2c");
-	if (ret < 0) {
-		dev_err(&pdev->dev, "failed to get alias id, errno %d\n", ret);
-		return ret;
-	}
-	pdev->id = ret;
+
+	/* For device tree we always use the dynamic or alias-assigned ID */
+	i2c->adap.nr = -1;
+
 	if (of_get_property(np, "mrvl,i2c-polling", NULL))
 		i2c->use_pio = 1;
 	if (of_get_property(np, "mrvl,i2c-fast-mode", NULL))
@@ -1075,20 +1122,25 @@ static int i2c_pxa_probe_pdata(struct platform_device *pdev,
 			       struct pxa_i2c *i2c,
 			       enum pxa_i2c_types *i2c_types)
 {
-	struct i2c_pxa_platform_data *plat = pdev->dev.platform_data;
+	struct i2c_pxa_platform_data *plat = dev_get_platdata(&pdev->dev);
 	const struct platform_device_id *id = platform_get_device_id(pdev);
 
 	*i2c_types = id->driver_data;
 	if (plat) {
 		i2c->use_pio = plat->use_pio;
 		i2c->fast_mode = plat->fast_mode;
+		i2c->high_mode = plat->high_mode;
+		i2c->master_code = plat->master_code;
+		if (!i2c->master_code)
+			i2c->master_code = 0xe;
+		i2c->rate = plat->rate;
 	}
 	return 0;
 }
 
 static int i2c_pxa_probe(struct platform_device *dev)
 {
-	struct i2c_pxa_platform_data *plat = dev->dev.platform_data;
+	struct i2c_pxa_platform_data *plat = dev_get_platdata(&dev->dev);
 	enum pxa_i2c_types i2c_type;
 	struct pxa_i2c *i2c;
 	struct resource *res = NULL;
@@ -1099,6 +1151,9 @@ static int i2c_pxa_probe(struct platform_device *dev)
 		ret = -ENOMEM;
 		goto emalloc;
 	}
+
+	/* Default adapter num to device id; i2c_pxa_probe_dt can override. */
+	i2c->adap.nr = dev->id;
 
 	ret = i2c_pxa_probe_dt(dev, i2c, &i2c_type);
 	if (ret > 0)
@@ -1124,9 +1179,7 @@ static int i2c_pxa_probe(struct platform_device *dev)
 	spin_lock_init(&i2c->lock);
 	init_waitqueue_head(&i2c->wait);
 
-	i2c->adap.nr = dev->id;
-	snprintf(i2c->adap.name, sizeof(i2c->adap.name), "pxa_i2c-i2c.%u",
-		 i2c->adap.nr);
+	strlcpy(i2c->adap.name, "pxa_i2c-i2c", sizeof(i2c->adap.name));
 
 	i2c->clk = clk_get(&dev->dev, NULL);
 	if (IS_ERR(i2c->clk)) {
@@ -1153,6 +1206,7 @@ static int i2c_pxa_probe(struct platform_device *dev)
 	i2c->irq = irq;
 
 	i2c->slave_addr = I2C_PXA_SLAVE_ADDR;
+	i2c->highmode_enter = false;
 
 	if (plat) {
 #ifdef CONFIG_I2C_PXA_SLAVE
@@ -1162,14 +1216,24 @@ static int i2c_pxa_probe(struct platform_device *dev)
 		i2c->adap.class = plat->class;
 	}
 
-	clk_enable(i2c->clk);
+	if (i2c->high_mode) {
+		if (i2c->rate) {
+			clk_set_rate(i2c->clk, i2c->rate);
+			pr_info("i2c: <%s> set rate to %ld\n",
+				i2c->adap.name, clk_get_rate(i2c->clk));
+		} else
+			pr_warn("i2c: <%s> clock rate not set\n",
+				i2c->adap.name);
+	}
+
+	clk_prepare_enable(i2c->clk);
 
 	if (i2c->use_pio) {
 		i2c->adap.algo = &i2c_pxa_pio_algorithm;
 	} else {
 		i2c->adap.algo = &i2c_pxa_algorithm;
 		ret = request_irq(irq, i2c_pxa_handler, IRQF_SHARED,
-				  i2c->adap.name, i2c);
+				  dev_name(&dev->dev), i2c);
 		if (ret)
 			goto ereqirq;
 	}
@@ -1187,7 +1251,6 @@ static int i2c_pxa_probe(struct platform_device *dev)
 		printk(KERN_INFO "I2C: Failed to add bus\n");
 		goto eadapt;
 	}
-	of_i2c_register_devices(&i2c->adap);
 
 	platform_set_drvdata(dev, i2c);
 
@@ -1204,7 +1267,7 @@ eadapt:
 	if (!i2c->use_pio)
 		free_irq(irq, i2c);
 ereqirq:
-	clk_disable(i2c->clk);
+	clk_disable_unprepare(i2c->clk);
 	iounmap(i2c->reg_base);
 eremap:
 	clk_put(i2c->clk);
@@ -1223,7 +1286,7 @@ static int i2c_pxa_remove(struct platform_device *dev)
 	if (!i2c->use_pio)
 		free_irq(i2c->irq, i2c);
 
-	clk_disable(i2c->clk);
+	clk_disable_unprepare(i2c->clk);
 	clk_put(i2c->clk);
 
 	iounmap(i2c->reg_base);
@@ -1270,7 +1333,6 @@ static struct platform_driver i2c_pxa_driver = {
 	.remove		= i2c_pxa_remove,
 	.driver		= {
 		.name	= "pxa2xx-i2c",
-		.owner	= THIS_MODULE,
 		.pm	= I2C_PXA_DEV_PM_OPS,
 		.of_match_table = i2c_pxa_dt_ids,
 	},

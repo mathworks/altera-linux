@@ -20,28 +20,29 @@
  * fsnotify inode mark locking/lifetime/and refcnting
  *
  * REFCNT:
- * The mark->refcnt tells how many "things" in the kernel currently are
- * referencing this object.  The object typically will live inside the kernel
- * with a refcnt of 2, one for each list it is on (i_list, g_list).  Any task
- * which can find this object holding the appropriete locks, can take a reference
- * and the object itself is guaranteed to survive until the reference is dropped.
+ * The group->recnt and mark->refcnt tell how many "things" in the kernel
+ * currently are referencing the objects. Both kind of objects typically will
+ * live inside the kernel with a refcnt of 2, one for its creation and one for
+ * the reference a group and a mark hold to each other.
+ * If you are holding the appropriate locks, you can take a reference and the
+ * object itself is guaranteed to survive until the reference is dropped.
  *
  * LOCKING:
- * There are 3 spinlocks involved with fsnotify inode marks and they MUST
- * be taken in order as follows:
+ * There are 3 locks involved with fsnotify inode marks and they MUST be taken
+ * in order as follows:
  *
+ * group->mark_mutex
  * mark->lock
- * group->mark_lock
  * inode->i_lock
  *
- * mark->lock protects 2 things, mark->group and mark->inode.  You must hold
- * that lock to dereference either of these things (they could be NULL even with
- * the lock)
- *
- * group->mark_lock protects the marks_list anchored inside a given group
- * and each mark is hooked via the g_list.  It also sorta protects the
- * free_g_list, which when used is anchored by a private list on the stack of the
- * task which held the group->mark_lock.
+ * group->mark_mutex protects the marks_list anchored inside a given group and
+ * each mark is hooked via the g_list.  It also protects the groups private
+ * data (i.e group limits).
+
+ * mark->lock protects the marks attributes like its masks and flags.
+ * Furthermore it protects the access to a reference of the group that the mark
+ * is assigned to as well as the access to a reference of the inode/vfsmount
+ * that is being watched by the mark.
  *
  * inode->i_lock protects the i_fsnotify_marks list anchored inside a
  * given inode and each mark is hooked via the i_list. (and sorta the
@@ -64,18 +65,11 @@
  * inode.  We take i_lock and walk the i_fsnotify_marks safely.  For each
  * mark on the list we take a reference (so the mark can't disappear under us).
  * We remove that mark form the inode's list of marks and we add this mark to a
- * private list anchored on the stack using i_free_list;  At this point we no
- * longer fear anything finding the mark using the inode's list of marks.
- *
- * We can safely and locklessly run the private list on the stack of everything
- * we just unattached from the original inode.  For each mark on the private list
- * we grab the mark-> and can thus dereference mark->group and mark->inode.  If
- * we see the group and inode are not NULL we take those locks.  Now holding all
- * 3 locks we can completely remove the mark from other tasks finding it in the
- * future.  Remember, 10 things might already be referencing this mark, but they
- * better be holding a ref.  We drop our reference we took before we unhooked it
- * from the inode.  When the ref hits 0 we can free the mark.
- *
+ * private list anchored on the stack using i_free_list; we walk i_free_list
+ * and before we destroy the mark we make sure that we dont race with a
+ * concurrent destroy_group by getting a ref to the marks group and taking the
+ * groups mutex.
+
  * Very similarly for freeing by group, except we use free_g_list.
  *
  * This has the very interesting property of being able to run concurrently with
@@ -116,6 +110,17 @@ void fsnotify_put_mark(struct fsnotify_mark *mark)
 	}
 }
 
+/* Calculate mask of events for a list of marks */
+u32 fsnotify_recalc_mask(struct hlist_head *head)
+{
+	u32 new_mask = 0;
+	struct fsnotify_mark *mark;
+
+	hlist_for_each_entry(mark, head, obj_list)
+		new_mask |= mark->mask;
+	return new_mask;
+}
+
 /*
  * Any time a mark is getting freed we end up here.
  * The caller had better be holding a reference to this mark so we don't actually
@@ -139,7 +144,7 @@ void fsnotify_destroy_mark_locked(struct fsnotify_mark *mark,
 	mark->flags &= ~FSNOTIFY_MARK_FLAG_ALIVE;
 
 	if (mark->flags & FSNOTIFY_MARK_FLAG_INODE) {
-		inode = mark->i.inode;
+		inode = mark->inode;
 		fsnotify_destroy_inode_mark(mark);
 	} else if (mark->flags & FSNOTIFY_MARK_FLAG_VFSMOUNT)
 		fsnotify_destroy_vfsmount_mark(mark);
@@ -156,7 +161,7 @@ void fsnotify_destroy_mark_locked(struct fsnotify_mark *mark,
 	mutex_unlock(&group->mark_mutex);
 
 	spin_lock(&destroy_lock);
-	list_add(&mark->destroy_list, &destroy_list);
+	list_add(&mark->g_list, &destroy_list);
 	spin_unlock(&destroy_lock);
 	wake_up(&destroy_waitq);
 	/*
@@ -198,6 +203,27 @@ void fsnotify_destroy_mark(struct fsnotify_mark *mark,
 	mutex_unlock(&group->mark_mutex);
 }
 
+/*
+ * Destroy all marks in the given list. The marks must be already detached from
+ * the original inode / vfsmount.
+ */
+void fsnotify_destroy_marks(struct list_head *to_free)
+{
+	struct fsnotify_mark *mark, *lmark;
+	struct fsnotify_group *group;
+
+	list_for_each_entry_safe(mark, lmark, to_free, free_list) {
+		spin_lock(&mark->lock);
+		fsnotify_get_group(mark->group);
+		group = mark->group;
+		spin_unlock(&mark->lock);
+
+		fsnotify_destroy_mark(mark, group);
+		fsnotify_put_mark(mark);
+		fsnotify_put_group(group);
+	}
+}
+
 void fsnotify_set_mark_mask_locked(struct fsnotify_mark *mark, __u32 mask)
 {
 	assert_spin_locked(&mark->lock);
@@ -213,6 +239,75 @@ void fsnotify_set_mark_ignored_mask_locked(struct fsnotify_mark *mark, __u32 mas
 	assert_spin_locked(&mark->lock);
 
 	mark->ignored_mask = mask;
+}
+
+/*
+ * Sorting function for lists of fsnotify marks.
+ *
+ * Fanotify supports different notification classes (reflected as priority of
+ * notification group). Events shall be passed to notification groups in
+ * decreasing priority order. To achieve this marks in notification lists for
+ * inodes and vfsmounts are sorted so that priorities of corresponding groups
+ * are descending.
+ *
+ * Furthermore correct handling of the ignore mask requires processing inode
+ * and vfsmount marks of each group together. Using the group address as
+ * further sort criterion provides a unique sorting order and thus we can
+ * merge inode and vfsmount lists of marks in linear time and find groups
+ * present in both lists.
+ *
+ * A return value of 1 signifies that b has priority over a.
+ * A return value of 0 signifies that the two marks have to be handled together.
+ * A return value of -1 signifies that a has priority over b.
+ */
+int fsnotify_compare_groups(struct fsnotify_group *a, struct fsnotify_group *b)
+{
+	if (a == b)
+		return 0;
+	if (!a)
+		return 1;
+	if (!b)
+		return -1;
+	if (a->priority < b->priority)
+		return 1;
+	if (a->priority > b->priority)
+		return -1;
+	if (a < b)
+		return 1;
+	return -1;
+}
+
+/* Add mark into proper place in given list of marks */
+int fsnotify_add_mark_list(struct hlist_head *head, struct fsnotify_mark *mark,
+			   int allow_dups)
+{
+	struct fsnotify_mark *lmark, *last = NULL;
+	int cmp;
+
+	/* is mark the first mark? */
+	if (hlist_empty(head)) {
+		hlist_add_head_rcu(&mark->obj_list, head);
+		return 0;
+	}
+
+	/* should mark be in the middle of the current list? */
+	hlist_for_each_entry(lmark, head, obj_list) {
+		last = lmark;
+
+		if ((lmark->group == mark->group) && !allow_dups)
+			return -EEXIST;
+
+		cmp = fsnotify_compare_groups(lmark->group, mark->group);
+		if (cmp >= 0) {
+			hlist_add_before_rcu(&mark->obj_list, &lmark->obj_list);
+			return 0;
+		}
+	}
+
+	BUG_ON(last == NULL);
+	/* mark should be the last entry.  last is the current last entry */
+	hlist_add_behind_rcu(&mark->obj_list, &last->obj_list);
+	return 0;
 }
 
 /*
@@ -275,7 +370,7 @@ err:
 	spin_unlock(&mark->lock);
 
 	spin_lock(&destroy_lock);
-	list_add(&mark->destroy_list, &destroy_list);
+	list_add(&mark->g_list, &destroy_list);
 	spin_unlock(&destroy_lock);
 	wake_up(&destroy_waitq);
 
@@ -290,6 +385,24 @@ int fsnotify_add_mark(struct fsnotify_mark *mark, struct fsnotify_group *group,
 	ret = fsnotify_add_mark_locked(mark, group, inode, mnt, allow_dups);
 	mutex_unlock(&group->mark_mutex);
 	return ret;
+}
+
+/*
+ * Given a list of marks, find the mark associated with given group. If found
+ * take a reference to that mark and return it, else return NULL.
+ */
+struct fsnotify_mark *fsnotify_find_mark(struct hlist_head *head,
+					 struct fsnotify_group *group)
+{
+	struct fsnotify_mark *mark;
+
+	hlist_for_each_entry(mark, head, obj_list) {
+		if (mark->group == group) {
+			fsnotify_get_mark(mark);
+			return mark;
+		}
+	}
+	return NULL;
 }
 
 /*
@@ -322,8 +435,8 @@ void fsnotify_clear_marks_by_group(struct fsnotify_group *group)
 void fsnotify_duplicate_mark(struct fsnotify_mark *new, struct fsnotify_mark *old)
 {
 	assert_spin_locked(&old->lock);
-	new->i.inode = old->i.inode;
-	new->m.mnt = old->m.mnt;
+	new->inode = old->inode;
+	new->mnt = old->mnt;
 	if (old->group)
 		fsnotify_get_group(old->group);
 	new->group = old->group;
@@ -346,7 +459,7 @@ void fsnotify_init_mark(struct fsnotify_mark *mark,
 static int fsnotify_mark_destroy(void *ignored)
 {
 	struct fsnotify_mark *mark, *next;
-	LIST_HEAD(private_destroy_list);
+	struct list_head private_destroy_list;
 
 	for (;;) {
 		spin_lock(&destroy_lock);
@@ -356,8 +469,8 @@ static int fsnotify_mark_destroy(void *ignored)
 
 		synchronize_srcu(&fsnotify_mark_srcu);
 
-		list_for_each_entry_safe(mark, next, &private_destroy_list, destroy_list) {
-			list_del_init(&mark->destroy_list);
+		list_for_each_entry_safe(mark, next, &private_destroy_list, g_list) {
+			list_del_init(&mark->g_list);
 			fsnotify_put_mark(mark);
 		}
 

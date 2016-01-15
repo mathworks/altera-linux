@@ -1,36 +1,35 @@
 /*
- *  Copyright (C) 2012-2013 Altera Corporation <www.altera.com>
+ * Copyright Altera Corporation (C) 2012-2014. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 /dts-v1/;
-/include/ "socfpga.dtsi"
+#include "socfpga.dtsi"
 
 / {
 	model = "Altera SOCFPGA VT";
 	compatible = "altr,socfpga-vt", "altr,socfpga";
 
 	chosen {
-		bootargs = "console=ttyS0,115200";
+		bootargs = "console=ttyS0,57600";
 	};
 
 	memory {
-                name = "memory";
-                device_type = "memory";
-                reg = <0x0 0x40000000>; /* 1 GB */
-        };
+		name = "memory";
+		device_type = "memory";
+		reg = <0x0 0x40000000>; /* 1 GB */
+	};
 
 	soc {
 		clkmgr@ffd04000 {
@@ -43,14 +42,10 @@
 
 		dwmmc0@ff704000 {
 			num-slots = <1>;
-			supports-highspeed;
 			broken-cd;
-			altr,dw-mshc-ciu-div = <3>;
-
-			slot@0 {
-				reg = <0>;
-				bus-width = <4>;
-			};
+			bus-width = <4>;
+			cap-mmc-highspeed;
+			cap-sd-highspeed;
 		};
 
 		ethernet@ff700000 {
@@ -58,19 +53,12 @@
 			status = "okay";
 		};
 
-		qspi: spi@ff705000 {
-			compatible = "cadence,qspi";
-			#address-cells = <1>;
-			#size-cells = <0>;
-			reg = <0xff705000 0x1000>,
-				<0xffa00000 0x1000>;
-			interrupts = <0 151 4>;
-			master-ref-clk = <400000000>;
-			ext-decoder = <0>;  /* external decoder */
-			num-chipselect = <4>;
-			fifo-depth = <128>;
-			bus-num = <2>;
+		timer0@ffc08000 {
+			clock-frequency = <7000000>;
+		};
 
+		qspi: spi@ff705000 {
+			status = "okay";
 			flash0: n25q128@0 {
 				#address-cells = <1>;
 				#size-cells = <1>;
@@ -96,31 +84,6 @@
 					reg = <0x800000 0x800000>;
 				};
 			};
-
-			flash1: n25q128@1 {
-				#address-cells = <1>;
-				#size-cells = <1>;
-				compatible = "n25q128";
-				reg = <1>;      /* chip select */
-				spi-max-frequency = <100000000>;
-				page-size = <256>;
-				block-size = <16>; /* 2^16, 64KB */
-				quad = <1>;
-				tshsl-ns = <200>;
-				tsd2d-ns = <255>;
-				tchsh-ns = <20>;
-				tslch-ns = <20>;
-
-				partition@0 {
-					/* 16MB for user data. */
-					label = "Flash 1 User Data";
-					reg = <0x0 0x1000000>;
-				};
-			};
-		};
-
-		timer0@ffc08000 {
-			clock-frequency = <7000000>;
 		};
 
 		timer1@ffc09000 {
@@ -146,14 +109,10 @@
 		sysmgr@ffd08000 {
 			cpu1-start-addr = <0xffd08010>;
 		};
-
-		watchdog0: wd@ffd02000 {
-			status = "okay";
-		};
-
-		usb0: usb@ffb00000 {
-			ulpi-ddr = <0>;
-			status = "okay";
-		};
 	};
+};
+
+&gmac0 {
+	status = "okay";
+	phy-mode = "gmii";
 };

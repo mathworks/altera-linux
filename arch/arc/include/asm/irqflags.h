@@ -15,14 +15,41 @@
  *  -Conditionally disable interrupts (if they are not enabled, don't disable)
 */
 
-#ifdef __KERNEL__
-
 #include <asm/arcregs.h>
+
+/* status32 Reg bits related to Interrupt Handling */
+#define STATUS_E1_BIT		1	/* Int 1 enable */
+#define STATUS_E2_BIT		2	/* Int 2 enable */
+#define STATUS_A1_BIT		3	/* Int 1 active */
+#define STATUS_A2_BIT		4	/* Int 2 active */
+
+#define STATUS_E1_MASK		(1<<STATUS_E1_BIT)
+#define STATUS_E2_MASK		(1<<STATUS_E2_BIT)
+#define STATUS_A1_MASK		(1<<STATUS_A1_BIT)
+#define STATUS_A2_MASK		(1<<STATUS_A2_BIT)
+
+/* Other Interrupt Handling related Aux regs */
+#define AUX_IRQ_LEV		0x200	/* IRQ Priority: L1 or L2 */
+#define AUX_IRQ_HINT		0x201	/* For generating Soft Interrupts */
+#define AUX_IRQ_LV12		0x43	/* interrupt level register */
+
+#define AUX_IENABLE		0x40c
+#define AUX_ITRIGGER		0x40d
+#define AUX_IPULSE		0x415
 
 #ifndef __ASSEMBLY__
 
 /******************************************************************
  * IRQ Control Macros
+ *
+ * All of them have "memory" clobber (compiler barrier) which is needed to
+ * ensure that LD/ST requiring irq safetly (R-M-W when LLSC is not available)
+ * are redone after IRQs are re-enabled (and gcc doesn't reuse stale register)
+ *
+ * Noted at the time of Abilis Timer List corruption
+ * 	Orig Bug + Rejected solution	: https://lkml.org/lkml/2013/3/29/67
+ * 	Reasoning			: https://lkml.org/lkml/2013/4/8/15
+ *
  ******************************************************************/
 
 /*
@@ -111,47 +138,42 @@ static inline int arch_irqs_disabled(void)
 	return arch_irqs_disabled_flags(arch_local_save_flags());
 }
 
-static inline void arch_mask_irq(unsigned int irq)
-{
-	unsigned int ienb;
+#else
 
-	ienb = read_aux_reg(AUX_IENABLE);
-	ienb &= ~(1 << irq);
-	write_aux_reg(AUX_IENABLE, ienb);
-}
+#ifdef CONFIG_TRACE_IRQFLAGS
 
-static inline void arch_unmask_irq(unsigned int irq)
-{
-	unsigned int ienb;
+.macro TRACE_ASM_IRQ_DISABLE
+	bl	trace_hardirqs_off
+.endm
 
-	ienb = read_aux_reg(AUX_IENABLE);
-	ienb |= (1 << irq);
-	write_aux_reg(AUX_IENABLE, ienb);
-}
+.macro TRACE_ASM_IRQ_ENABLE
+	bl	trace_hardirqs_on
+.endm
 
 #else
+
+.macro TRACE_ASM_IRQ_DISABLE
+.endm
+
+.macro TRACE_ASM_IRQ_ENABLE
+.endm
+
+#endif
 
 .macro IRQ_DISABLE  scratch
 	lr	\scratch, [status32]
 	bic	\scratch, \scratch, (STATUS_E1_MASK | STATUS_E2_MASK)
 	flag	\scratch
-.endm
-
-.macro IRQ_DISABLE_SAVE  scratch, save
-	lr	\scratch, [status32]
-	mov	\save, \scratch		/* Make a copy */
-	bic	\scratch, \scratch, (STATUS_E1_MASK | STATUS_E2_MASK)
-	flag	\scratch
+	TRACE_ASM_IRQ_DISABLE
 .endm
 
 .macro IRQ_ENABLE  scratch
 	lr	\scratch, [status32]
 	or	\scratch, \scratch, (STATUS_E1_MASK | STATUS_E2_MASK)
 	flag	\scratch
+	TRACE_ASM_IRQ_ENABLE
 .endm
 
 #endif	/* __ASSEMBLY__ */
-
-#endif	/* KERNEL */
 
 #endif

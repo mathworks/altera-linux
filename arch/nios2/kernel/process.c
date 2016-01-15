@@ -7,11 +7,6 @@
  *   Implemented by fredrik.markstrom@gmail.com and ivarholmqvist@gmail.com
  * Copyright (C) 2004 Microtronix Datacom Ltd
  *
- * based on arch/m68knommu/kernel/process.c which is:
- *
- * Copyright (C) 2000-2002 David McCullough <davidm@snapgear.com>
- * Copyright (C) 1995 Hamish Macdonald
- *
  * This file is subject to the terms and conditions of the GNU General Public
  * License.  See the file "COPYING" in the main directory of this archive
  * for more details.
@@ -24,7 +19,6 @@
 
 #include <asm/unistd.h>
 #include <asm/traps.h>
-#include <asm/cacheflush.h>
 #include <asm/cpuinfo.h>
 
 asmlinkage void ret_from_fork(void);
@@ -33,36 +27,9 @@ asmlinkage void ret_from_kernel_thread(void);
 void (*pm_power_off)(void) = NULL;
 EXPORT_SYMBOL(pm_power_off);
 
-void default_idle(void)
+void arch_cpu_idle(void)
 {
-	local_irq_disable();
-	if (!need_resched()) {
-		local_irq_enable();
-		__asm__("nop");
-	} else
-		local_irq_enable();
-}
-
-void (*idle)(void) = default_idle;
-
-/*
- * The idle thread. There's no useful work to be
- * done, so just try to conserve power and have a
- * low exit latency (ie sit in a loop waiting for
- * somebody to say that they'd like to reschedule)
- */
-void cpu_idle(void)
-{
-	while (1) {
-		tick_nohz_idle_enter();
-		rcu_idle_enter();
-		while (!need_resched())
-			idle();
-		rcu_idle_exit();
-		tick_nohz_idle_exit();
-
-		schedule_preempt_disabled();
-	}
+	local_irq_enable();
 }
 
 /*
@@ -104,6 +71,7 @@ void machine_power_off(void)
 void show_regs(struct pt_regs *regs)
 {
 	pr_notice("\n");
+	show_regs_print_info(KERN_DEFAULT);
 
 	pr_notice("r1: %08lx r2: %08lx r3: %08lx r4: %08lx\n",
 		regs->r1,  regs->r2,  regs->r3,  regs->r4);
@@ -122,9 +90,6 @@ void show_regs(struct pt_regs *regs)
 
 	pr_notice("ea: %08lx estatus: %08lx\n",
 		regs->ea,  regs->estatus);
-#ifndef CONFIG_MMU
-	pr_notice("status_extension: %08lx\n", regs->status_extension);
-#endif
 }
 
 void flush_thread(void)
@@ -149,11 +114,8 @@ int copy_thread(unsigned long clone_flags,
 		childstack->r17 = arg;
 		childstack->ra = (unsigned long) ret_from_kernel_thread;
 		childregs->estatus = STATUS_PIE;
-#ifdef CONFIG_MMU
 		childregs->sp = (unsigned long) childstack;
-#else
-		p->thread.kregs->sp = (unsigned long) childstack;
-#endif
+
 		p->thread.ksp = (unsigned long) childstack;
 		p->thread.kregs = childregs;
 		return 0;
@@ -170,17 +132,13 @@ int copy_thread(unsigned long clone_flags,
 	p->thread.kregs = childregs;
 	p->thread.ksp = (unsigned long) childstack;
 
-#ifdef CONFIG_MMU
 	if (usp)
 		childregs->sp = usp;
 
 	/* Initialize tls register. */
 	if (clone_flags & CLONE_SETTLS)
-		childstack->r23 = regs->r7;
-#else
-	if (usp)
-		p->thread.kregs->sp = usp;
-#endif
+		childstack->r23 = regs->r8;
+
 	return 0;
 }
 
@@ -210,7 +168,7 @@ void dump(struct pt_regs *fp)
 	}
 
 	pr_emerg("PC: %08lx\n", fp->ea);
-	pr_emerg(KERN_EMERG "SR: %08lx    SP: %08lx\n",
+	pr_emerg("SR: %08lx    SP: %08lx\n",
 		(long) fp->estatus, (long) fp);
 
 	pr_emerg("r1: %08lx    r2: %08lx    r3: %08lx\n",
@@ -261,6 +219,7 @@ unsigned long get_wchan(struct task_struct *p)
 	unsigned long fp, pc;
 	unsigned long stack_page;
 	int count = 0;
+
 	if (!p || p == current || p->state == TASK_RUNNING)
 		return 0;
 
@@ -285,17 +244,11 @@ unsigned long get_wchan(struct task_struct *p)
 void start_thread(struct pt_regs *regs, unsigned long pc, unsigned long sp)
 {
 	memset((void *) regs, 0, sizeof(struct pt_regs));
-#ifdef CONFIG_MMU
 	regs->estatus = ESTATUS_EPIE | ESTATUS_EU;
-#else
-	/* No user mode setting on NOMMU, at least for now */
-	regs->estatus = ESTATUS_EPIE;
-#endif /* CONFIG_MMU */
 	regs->ea = pc;
 	regs->sp = sp;
 }
 
-#ifdef CONFIG_MMU
 #include <linux/elfcore.h>
 
 /* Fill in the FPU structure for a core dump. */
@@ -303,4 +256,3 @@ int dump_fpu(struct pt_regs *regs, elf_fpregset_t *r)
 {
 	return 0; /* Nios2 has no FPU and thus no FPU registers */
 }
-#endif /* CONFIG_MMU */

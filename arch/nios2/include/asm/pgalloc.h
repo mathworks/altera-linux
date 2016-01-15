@@ -10,10 +10,6 @@
 #ifndef _ASM_NIOS2_PGALLOC_H
 #define _ASM_NIOS2_PGALLOC_H
 
-#ifndef CONFIG_MMU
-# include <asm-generic/pgalloc.h>
-#else
-
 #include <linux/mm.h>
 
 static inline void pmd_populate_kernel(struct mm_struct *mm, pmd_t *pmd,
@@ -59,8 +55,11 @@ static inline pgtable_t pte_alloc_one(struct mm_struct *mm,
 
 	pte = alloc_pages(GFP_KERNEL | __GFP_REPEAT, PTE_ORDER);
 	if (pte) {
+		if (!pgtable_page_ctor(pte)) {
+			__free_page(pte);
+			return NULL;
+		}
 		clear_highpage(pte);
-		pgtable_page_ctor(pte);
 	}
 	return pte;
 }
@@ -81,8 +80,6 @@ static inline void pte_free(struct mm_struct *mm, struct page *pte)
 		pgtable_page_dtor(pte);				\
 		tlb_remove_page((tlb), (pte));			\
 	} while (0)
-
-#endif /* CONFIG_MMU */
 
 #define check_pgt_cache()	do { } while (0)
 

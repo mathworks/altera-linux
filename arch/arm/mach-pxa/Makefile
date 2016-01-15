@@ -4,14 +4,8 @@
 
 # Common support (must be linked before board specific support)
 obj-y				+= clock.o devices.o generic.o irq.o \
-				   time.o reset.o
+				   reset.o
 obj-$(CONFIG_PM)		+= pm.o sleep.o standby.o
-
-ifeq ($(CONFIG_CPU_FREQ),y)
-obj-$(CONFIG_PXA25x)		+= cpufreq-pxa2xx.o
-obj-$(CONFIG_PXA27x)		+= cpufreq-pxa2xx.o
-obj-$(CONFIG_PXA3xx)		+= cpufreq-pxa3xx.o
-endif
 
 # Generic drivers that other drivers may depend upon
 
@@ -27,6 +21,7 @@ obj-$(CONFIG_CPU_PXA930)	+= pxa930.o
 
 # Device Tree support
 obj-$(CONFIG_MACH_PXA3XX_DT)	+= pxa-dt.o
+obj-$(CONFIG_MACH_PXA27X_DT)	+= pxa-dt.o
 
 # Intel/Marvell Dev Platforms
 obj-$(CONFIG_ARCH_LUBBOCK)	+= lubbock.o

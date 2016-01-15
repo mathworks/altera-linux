@@ -15,7 +15,6 @@
 
 #include <linux/module.h>
 #include <linux/types.h>
-#include <linux/init.h>
 #include <linux/device.h>
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/map.h>
@@ -48,13 +47,11 @@ static int of_flash_remove(struct platform_device *dev)
 		return 0;
 	dev_set_drvdata(&dev->dev, NULL);
 
-	if (info->cmtd != info->list[0].mtd) {
+	if (info->cmtd) {
 		mtd_device_unregister(info->cmtd);
-		mtd_concat_destroy(info->cmtd);
+		if (info->cmtd != info->list[0].mtd)
+			mtd_concat_destroy(info->cmtd);
 	}
-
-	if (info->cmtd)
-		mtd_device_unregister(info->cmtd);
 
 	for (i = 0; i < info->list_size; i++) {
 		if (info->list[i].mtd)
@@ -71,6 +68,9 @@ static int of_flash_remove(struct platform_device *dev)
 	return 0;
 }
 
+static const char * const rom_probe_types[] = {
+	"cfi_probe", "jedec_probe", "map_rom" };
+
 /* Helper function to handle probing of the obsolete "direct-mapped"
  * compatible binding, which has an extra "probe-type" property
  * describing the type of flash probe necessary. */
@@ -80,8 +80,6 @@ static struct mtd_info *obsolete_probe(struct platform_device *dev,
 	struct device_node *dp = dev->dev.of_node;
 	const char *of_probe;
 	struct mtd_info *mtd;
-	static const char *rom_probe_types[]
-		= { "cfi_probe", "jedec_probe", "map_rom"};
 	int i;
 
 	dev_warn(&dev->dev, "Device tree uses obsolete \"direct-mapped\" "
@@ -103,7 +101,7 @@ static struct mtd_info *obsolete_probe(struct platform_device *dev,
 		if (strcmp(of_probe, "ROM") != 0)
 			dev_warn(&dev->dev, "obsolete_probe: don't know probe "
 				 "type '%s', mapping as rom\n", of_probe);
-		return do_map_probe("mtd_rom", map);
+		return do_map_probe("map_rom", map);
 	}
 }
 
@@ -111,9 +109,10 @@ static struct mtd_info *obsolete_probe(struct platform_device *dev,
    specifies the list of partition probers to use. If none is given then the
    default is use. These take precedence over other device tree
    information. */
-static const char *part_probe_types_def[] = { "cmdlinepart", "RedBoot",
-					"ofpart", "ofoldpart", NULL };
-static const char **of_get_probes(struct device_node *dp)
+static const char * const part_probe_types_def[] = {
+	"cmdlinepart", "RedBoot", "ofpart", "ofoldpart", NULL };
+
+static const char * const *of_get_probes(struct device_node *dp)
 {
 	const char *cp;
 	int cplen;
@@ -142,7 +141,7 @@ static const char **of_get_probes(struct device_node *dp)
 	return res;
 }
 
-static void of_free_probes(const char **probes)
+static void of_free_probes(const char * const *probes)
 {
 	if (probes != part_probe_types_def)
 		kfree(probes);
@@ -151,7 +150,7 @@ static void of_free_probes(const char **probes)
 static struct of_device_id of_flash_match[];
 static int of_flash_probe(struct platform_device *dev)
 {
-	const char **part_probe_types;
+	const char * const *part_probe_types;
 	const struct of_device_id *match;
 	struct device_node *dp = dev->dev.of_node;
 	struct resource res;
@@ -270,6 +269,16 @@ static int of_flash_probe(struct platform_device *dev)
 			info->list[i].mtd = obsolete_probe(dev,
 							   &info->list[i].map);
 		}
+
+		/* Fall back to mapping region as ROM */
+		if (!info->list[i].mtd) {
+			dev_warn(&dev->dev,
+				"do_map_probe() failed for type %s\n",
+				 probe_type);
+
+			info->list[i].mtd = do_map_probe("map_rom",
+							 &info->list[i].map);
+		}
 		mtd_list[i] = info->list[i].mtd;
 
 		err = -ENXIO;
@@ -339,6 +348,10 @@ static struct of_device_id of_flash_match[] = {
 		.data           = (void *)"map_ram",
 	},
 	{
+		.compatible     = "mtd-rom",
+		.data           = (void *)"map_rom",
+	},
+	{
 		.type		= "rom",
 		.compatible	= "direct-mapped"
 	},
@@ -349,7 +362,6 @@ MODULE_DEVICE_TABLE(of, of_flash_match);
 static struct platform_driver of_flash_driver = {
 	.driver = {
 		.name = "of-flash",
-		.owner = THIS_MODULE,
 		.of_match_table = of_flash_match,
 	},
 	.probe		= of_flash_probe,

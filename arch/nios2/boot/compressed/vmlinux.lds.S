@@ -25,8 +25,8 @@ ENTRY(_start)	/* Defined in head.S */
 
 SECTIONS
 {
-	. = (CONFIG_MEM_BASE + CONFIG_BOOT_LINK_OFFSET) |	\
-		CONFIG_KERNEL_REGION_BASE;
+	. = (CONFIG_NIOS2_MEM_BASE + CONFIG_NIOS2_BOOT_LINK_OFFSET) |	\
+		CONFIG_NIOS2_KERNEL_REGION_BASE;
 
 	_text = .;
 	.text : { *(.text) } = 0
@@ -37,7 +37,13 @@ SECTIONS
 	.data : { *(.data) }
 	. = ALIGN(32 / 8);
 	_got = .;
-	.got : { *(.got) _egot = .; *(.got.*) }
+	.got : {
+		*(.got.plt)
+		*(.igot.plt)
+		*(.got)
+		*(.igot)
+	}
+	_egot = .;
 	_edata =  .;
 
 	. = ALIGN(32 / 8);

@@ -33,13 +33,16 @@
 #include <linux/input.h>
 #include <linux/mutex.h>
 #include <linux/scatterlist.h>
+#include <linux/device.h>
 #include <asm/io.h>
 #include <media/v4l2-common.h>
-#include <linux/device.h>
+#include <media/v4l2-ctrls.h>
+#include <media/v4l2-fh.h>
 #include <media/videobuf-dma-sg.h>
 #include <media/tveeprom.h>
 #include <media/rc-core.h>
 #include <media/ir-kbd-i2c.h>
+#include <media/tea575x.h>
 
 #include "bt848.h"
 #include "bttv.h"
@@ -131,8 +134,6 @@ struct bttv_ir {
 	u32                     polling;
 	u32                     last_gpio;
 	int                     shift_by;
-	int                     start; // What should RC5_START() be
-	int                     addr; // What RC5_ADDR() should be.
 	int                     rc5_remote_gap;
 
 	/* RC5 gpio */
@@ -214,11 +215,11 @@ struct bttv_crop {
 };
 
 struct bttv_fh {
+	/* This must be the first field in this struct */
+	struct v4l2_fh		 fh;
+
 	struct bttv              *btv;
 	int resources;
-#ifdef VIDIOC_G_PRIORITY
-	enum v4l2_priority       prio;
-#endif
 	enum v4l2_buf_type       type;
 
 	/* video capture */
@@ -298,6 +299,10 @@ extern int no_overlay;
 /* bttv-input.c                                               */
 
 extern void init_bttv_i2c_ir(struct bttv *btv);
+
+/* ---------------------------------------------------------- */
+/* bttv-i2c.c                                                 */
+extern int init_bttv_i2c(struct bttv *btv);
 extern int fini_bttv_i2c(struct bttv *btv);
 
 /* ---------------------------------------------------------- */
@@ -308,7 +313,6 @@ extern unsigned int bttv_verbose;
 extern unsigned int bttv_debug;
 extern unsigned int bttv_gpio;
 extern void bttv_gpio_tracking(struct bttv *btv, char *comment);
-extern int init_bttv_i2c(struct bttv *btv);
 
 #define dprintk(fmt, ...)			\
 do {						\
@@ -356,6 +360,10 @@ struct bttv_suspend_state {
 	struct bttv_buffer     *vbi;
 };
 
+struct bttv_tea575x_gpio {
+	u8 data, clk, wren, most;
+};
+
 struct bttv {
 	struct bttv_core c;
 
@@ -393,11 +401,16 @@ struct bttv {
 	wait_queue_head_t          i2c_queue;
 	struct v4l2_subdev 	  *sd_msp34xx;
 	struct v4l2_subdev 	  *sd_tvaudio;
+	struct v4l2_subdev	  *sd_tda7432;
 
 	/* video4linux (1) */
 	struct video_device *video_dev;
 	struct video_device *radio_dev;
 	struct video_device *vbi_dev;
+
+	/* controls */
+	struct v4l2_ctrl_handler   ctrl_handler;
+	struct v4l2_ctrl_handler   radio_ctrl_handler;
 
 	/* infrared remote */
 	int has_remote;
@@ -410,52 +423,44 @@ struct bttv {
 	spinlock_t s_lock;
 	struct mutex lock;
 	int resources;
-#ifdef VIDIOC_G_PRIORITY
-	struct v4l2_prio_state prio;
-#endif
 
 	/* video state */
 	unsigned int input;
-	unsigned int audio;
+	unsigned int audio_input;
 	unsigned int mute;
-	unsigned long freq;
+	unsigned long tv_freq;
 	unsigned int tvnorm;
+	v4l2_std_id std;
 	int hue, contrast, bright, saturation;
 	struct v4l2_framebuffer fbuf;
 	unsigned int field_count;
 
 	/* various options */
 	int opt_combfilter;
-	int opt_lumafilter;
 	int opt_automute;
-	int opt_chroma_agc;
-	int opt_color_killer;
-	int opt_adc_crush;
 	int opt_vcr_hack;
-	int opt_whitecrush_upper;
-	int opt_whitecrush_lower;
 	int opt_uv_ratio;
-	int opt_full_luma_range;
-	int opt_coring;
 
 	/* radio data/state */
 	int has_radio;
+	int has_radio_tuner;
 	int radio_user;
 	int radio_uses_msp_demodulator;
+	unsigned long radio_freq;
 
 	/* miro/pinnacle + Aimslab VHX
 	   philips matchbox (tea5757 radio tuner) support */
-	int has_matchbox;
-	int mbox_we;
-	int mbox_data;
-	int mbox_clk;
-	int mbox_most;
-	int mbox_mask;
+	int has_tea575x;
+	struct bttv_tea575x_gpio tea_gpio;
+	struct snd_tea575x tea;
 
 	/* ISA stuff (Terratec Active Radio Upgrade) */
 	int mbox_ior;
 	int mbox_iow;
 	int mbox_csel;
+
+	/* switch status for multi-controller cards */
+	char sw_status[4];
 
 	/* risc memory management data
 	   - must acquire s_lock before changing these
@@ -528,9 +533,3 @@ static inline unsigned int bttv_muxsel(const struct bttv *btv,
 #define btaor(dat,mask,adr) btwrite((dat) | ((mask) & btread(adr)), adr)
 
 #endif /* _BTTVP_H_ */
-
-/*
- * Local variables:
- * c-basic-offset: 8
- * End:
- */

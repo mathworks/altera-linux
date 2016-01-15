@@ -102,6 +102,11 @@
  */
 #define X86_PLATFORM_IPI_VECTOR		0xf7
 
+/* Vector for KVM to deliver posted interrupt IPI */
+#ifdef CONFIG_HAVE_KVM
+#define POSTED_INTR_VECTOR		0xf2
+#endif
+
 /*
  * IRQ work vector:
  */
@@ -120,6 +125,12 @@
 #define LOCAL_TIMER_VECTOR		0xef
 
 #define NR_VECTORS			 256
+
+#ifdef CONFIG_X86_LOCAL_APIC
+#define FIRST_SYSTEM_VECTOR		LOCAL_TIMER_VECTOR
+#else
+#define FIRST_SYSTEM_VECTOR		NR_VECTORS
+#endif
 
 #define FPU_IRQ				  13
 

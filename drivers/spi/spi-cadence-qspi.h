@@ -1,21 +1,19 @@
 /*
  * Driver for Cadence QSPI Controller
  *
- * Copyright (C) 2012 Altera Corporation
+ * Copyright Altera Corporation (C) 2012-2014. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
+ * it under the terms and conditions of the GNU General Public License,
+ * version 2, as published by the Free Software Foundation.
  *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
+ * This program is distributed in the hope it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
+ * more details.
  *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ * You should have received a copy of the GNU General Public License along with
+ * this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #ifndef __CADENCE_QSPI_H__
@@ -28,7 +26,6 @@
 struct cqspi_flash_pdata {
 	unsigned int page_size;
 	unsigned int block_size;
-	unsigned int quad;
 	unsigned int read_delay;
 	unsigned int tshsl_ns;
 	unsigned int tsd2d_ns;
@@ -43,6 +40,9 @@ struct cqspi_platform_data {
 	unsigned int master_ref_clk_hz;
 	unsigned int ext_decoder;
 	unsigned int fifo_depth;
+	unsigned int enable_dma;
+	unsigned int tx_dma_peri_id;
+	unsigned int rx_dma_peri_id;
 	struct cqspi_flash_pdata f_pdata[CQSPI_MAX_CHIP_SELECT];
 };
 
@@ -53,6 +53,8 @@ struct struct_cqspi
 	wait_queue_head_t waitqueue;
 	struct list_head msg_queue;
 	struct platform_device *pdev;
+
+	struct clk *clk;
 
 	/* lock protects queue and registers */
 	spinlock_t lock;
@@ -72,6 +74,11 @@ struct struct_cqspi
 	int current_cs;
 	/* Is queue running */
 	bool running;
+	/* DMA support */
+	struct dma_chan *txchan;
+	struct dma_chan *rxchan;
+	dma_addr_t dma_addr;
+	int dma_done;
 };
 
 /* Kernel function hook */

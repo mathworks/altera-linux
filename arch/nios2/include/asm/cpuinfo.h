@@ -20,7 +20,6 @@
 #define _ASM_NIOS2_CPUINFO_H
 
 #include <linux/types.h>
-#include <asm/prom.h>
 
 struct cpuinfo {
 	/* Core CPU configuration */

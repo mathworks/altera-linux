@@ -26,6 +26,7 @@
  * @ioctl: Perform ioctl(2) on device file descriptor, supporting VFIO_DEVICE_*
  *         operations documented below
  * @mmap: Perform mmap(2) on a region of the device file descriptor
+ * @request: Request for the bus driver to release the device
  */
 struct vfio_device_ops {
 	char	*name;
@@ -38,6 +39,7 @@ struct vfio_device_ops {
 	long	(*ioctl)(void *device_data, unsigned int cmd,
 			 unsigned long arg);
 	int	(*mmap)(void *device_data, struct vm_area_struct *vma);
+	void	(*request)(void *device_data, unsigned int count);
 };
 
 extern int vfio_add_group_dev(struct device *dev,
@@ -45,6 +47,9 @@ extern int vfio_add_group_dev(struct device *dev,
 			      void *device_data);
 
 extern void *vfio_del_group_dev(struct device *dev);
+extern struct vfio_device *vfio_device_get_from_dev(struct device *dev);
+extern void vfio_device_put(struct vfio_device *device);
+extern void *vfio_device_data(struct vfio_device *device);
 
 /**
  * struct vfio_iommu_driver_ops - VFIO IOMMU driver callbacks
@@ -83,8 +88,39 @@ extern void vfio_unregister_iommu_driver(
  * from user space.  This allows us to easily determine if the provided
  * structure is sized to include various fields.
  */
-#define offsetofend(TYPE, MEMBER) ({				\
-	TYPE tmp;						\
-	offsetof(TYPE, MEMBER) + sizeof(tmp.MEMBER); })		\
+#define offsetofend(TYPE, MEMBER) \
+	(offsetof(TYPE, MEMBER)	+ sizeof(((TYPE *)0)->MEMBER))
 
+/*
+ * External user API
+ */
+extern struct vfio_group *vfio_group_get_external_user(struct file *filep);
+extern void vfio_group_put_external_user(struct vfio_group *group);
+extern int vfio_external_user_iommu_id(struct vfio_group *group);
+extern long vfio_external_check_extension(struct vfio_group *group,
+					  unsigned long arg);
+
+struct pci_dev;
+#ifdef CONFIG_EEH
+extern void vfio_spapr_pci_eeh_open(struct pci_dev *pdev);
+extern void vfio_spapr_pci_eeh_release(struct pci_dev *pdev);
+extern long vfio_spapr_iommu_eeh_ioctl(struct iommu_group *group,
+				       unsigned int cmd,
+				       unsigned long arg);
+#else
+static inline void vfio_spapr_pci_eeh_open(struct pci_dev *pdev)
+{
+}
+
+static inline void vfio_spapr_pci_eeh_release(struct pci_dev *pdev)
+{
+}
+
+static inline long vfio_spapr_iommu_eeh_ioctl(struct iommu_group *group,
+					      unsigned int cmd,
+					      unsigned long arg)
+{
+	return -ENOTTY;
+}
+#endif /* CONFIG_EEH */
 #endif /* VFIO_H */

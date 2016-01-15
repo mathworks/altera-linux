@@ -7,7 +7,6 @@ Required properties:
 	length of the controller register set.  The second entry is the
 	address and length of the QSPI Controller data area.
 - interrupts : Unit interrupt specifier for the controller interrupt.
-- master-ref-clk : Specifies the frequency of the controller input clock.
 - ext-decoder : Value of 0 means no external chipselect decoder is
 	connected, 1 means there is an external chipselect decoder connected.
 - num-chipselect : Number of chip select lines.
@@ -15,7 +14,9 @@ Required properties:
 - bus-num : Number of the SPI bus to which the controller is connected.
 
 Optional properties:
-No optional properties
+- dmas : DMA request lines.  Should be <&pdma 0 &pdma 1>.  If present,
+  then DMA is used for reads and writes
+- dma-names : Names of DMA request lines. Should be "tx", "rx".
 
 Example:
 
@@ -26,9 +27,11 @@ Example:
 		reg = <0xff705000 0x1000>,
 			<0xffa00000 0x1000>;
 		interrupts = <0 151 4>;
-		master-ref-clk = <400000000>;
+		clocks = <&qspi_clk>;
 		ext-decoder = <0>;
 		num-chipselect = <4>;
 		fifo-depth = <128>;
 		bus-num = <2>;
+		dmas = <&pdma 24 &pdma 25>;
+		dma-names = "tx", "rx";
 	}

@@ -13,11 +13,6 @@
  * MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, GOOD TITLE or
  * NON INFRINGEMENT.  See the GNU General Public License for more
  * details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  */
 
 #ifndef _ASM_NIOS2_CACHE_H
@@ -26,8 +21,8 @@
 #define NIOS2_DCACHE_SIZE	CONFIG_NIOS2_DCACHE_SIZE
 #define NIOS2_ICACHE_SIZE	CONFIG_NIOS2_ICACHE_SIZE
 #define NIOS2_DCACHE_LINE_SIZE	CONFIG_NIOS2_DCACHE_LINE_SIZE
-#define NIOS2_ICACHE_LINE_SIZE	CONFIG_NIOS2_ICACHE_LINE_SIZE
-#define NIOS2_ICACHE_LINE_SHIFT	CONFIG_NIOS2_ICACHE_LINE_SHIFT
+#define NIOS2_ICACHE_LINE_SHIFT	5
+#define NIOS2_ICACHE_LINE_SIZE	(1 << NIOS2_ICACHE_LINE_SHIFT)
 
 /* bytes per L1 cache line */
 #define L1_CACHE_SHIFT		NIOS2_ICACHE_LINE_SHIFT

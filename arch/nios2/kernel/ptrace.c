@@ -1,198 +1,166 @@
 /*
+ * Copyright (C) 2014 Altera Corporation
  * Copyright (C) 2010 Tobias Klauser <tklauser@distanz.ch>
- *
- * based on arch/m68knommu/kernel/ptrace.c
- *
- * Copyright (C) 1994 by Hamish Macdonald
  *
  * This file is subject to the terms and conditions of the GNU General
  * Public License.  See the file COPYING in the main directory of this
  * archive for more details.
  */
 
-#include <linux/kernel.h>
-#include <linux/sched.h>
-#include <linux/mm.h>
+#include <linux/elf.h>
 #include <linux/errno.h>
+#include <linux/kernel.h>
+#include <linux/mm.h>
 #include <linux/ptrace.h>
+#include <linux/regset.h>
+#include <linux/sched.h>
+#include <linux/tracehook.h>
+#include <linux/uaccess.h>
 #include <linux/user.h>
 
-#include <linux/uaccess.h>
-
-/*
- * does not yet catch signals sent when the child dies.
- * in exit.c or in signal.c.
- */
-
-/* determines which bits in the SR the user has access to. */
-/* 1 = access 0 = no access */
-#define SR_MASK 0x00000000
-
-/* Find the stack offset for a register, relative to thread.ksp. */
-#define PT_REG(reg)	((long)&((struct pt_regs *)0)->reg)
-#define SW_REG(reg)	((long)&((struct switch_stack *)0)->reg \
-			 - sizeof(struct switch_stack))
-
-/* Mapping from PT_xxx to the stack offset at which the register is
- * saved.
- */
-static int regoff[] = {
-		-1, PT_REG(r1), PT_REG(r2), PT_REG(r3),
-	PT_REG(r4), PT_REG(r5), PT_REG(r6), PT_REG(r7),
-	PT_REG(r8), PT_REG(r9), PT_REG(r10), PT_REG(r11),
-	PT_REG(r12), PT_REG(r13), PT_REG(r14), PT_REG(r15),  /* reg 15 */
-	SW_REG(r16), SW_REG(r17), SW_REG(r18), SW_REG(r19),
-	SW_REG(r20), SW_REG(r21), SW_REG(r22), SW_REG(r23),
-		-1,          -1, PT_REG(gp), PT_REG(sp),
-	PT_REG(fp), PT_REG(ea),          -1, PT_REG(ra),  /* reg 31 */
-	PT_REG(ea),          -1,          -1,          -1,  /* use ea for pc */
-		-1,          -1,          -1,          -1,
-		-1,          -1,          -1,          -1   /* reg 43 */
-};
-
-/*
- * Get contents of register REGNO in task TASK.
- */
-static inline long get_reg(struct task_struct *task, int regno)
+static int genregs_get(struct task_struct *target,
+		       const struct user_regset *regset,
+		       unsigned int pos, unsigned int count,
+		       void *kbuf, void __user *ubuf)
 {
-	unsigned long *addr;
+	const struct pt_regs *regs = task_pt_regs(target);
+	const struct switch_stack *sw = (struct switch_stack *)regs - 1;
+	int ret = 0;
 
-	if (regno >= ARRAY_SIZE(regoff) || regoff[regno] == -1)
-		return 0;
+#define REG_O_ZERO_RANGE(START, END)		\
+	if (!ret)					\
+		ret = user_regset_copyout_zero(&pos, &count, &kbuf, &ubuf, \
+			START * 4, (END * 4) + 4);
 
-	addr = (unsigned long *)((char *)task->thread.kregs + regoff[regno]);
-	return *addr;
-}
+#define REG_O_ONE(PTR, LOC)	\
+	if (!ret)			\
+		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf, PTR, \
+			LOC * 4, (LOC * 4) + 4);
 
-/*
- * Write contents of register REGNO in task TASK.
- */
-static inline int put_reg(struct task_struct *task, int regno,
-			  unsigned long data)
-{
-	unsigned long *addr;
+#define REG_O_RANGE(PTR, START, END)	\
+	if (!ret)				\
+		ret = user_regset_copyout(&pos, &count, &kbuf, &ubuf, PTR, \
+			START * 4, (END * 4) + 4);
 
-	if (regno >= ARRAY_SIZE(regoff) || regoff[regno] == -1)
-		return -1;
-
-	addr = (unsigned long *)((char *)task->thread.kregs + regoff[regno]);
-	*addr = data;
-	return 0;
-}
-
-/*
- * Called by kernel/ptrace.c when detaching..
- *
- * Nothing special to do here, no processor debug support.
- */
-void ptrace_disable(struct task_struct *child)
-{
-}
-
-long arch_ptrace(struct task_struct *child, long request,
-		 unsigned long addr, unsigned long data)
-{
-	unsigned long tmp;
-	unsigned int i;
-	int ret;
-
-	switch (request) {
-	/* read the word at location addr in the USER area. */
-	case PTRACE_PEEKUSR:
-		pr_debug("PEEKUSR: addr=0x%08lx\n", addr);
-		ret = -EIO;
-		if (addr & 3)
-			break;
-
-		addr = addr >> 2; /* temporary hack. */
-		ret = -EIO;
-		if (addr < ARRAY_SIZE(regoff))
-			tmp = get_reg(child, addr);
-		else if (addr == PT_TEXT_ADDR / 4)
-			tmp = child->mm->start_code;
-		else if (addr == PT_DATA_ADDR / 4)
-			tmp = child->mm->start_data;
-		else if (addr == PT_TEXT_END_ADDR / 4)
-			tmp = child->mm->end_code;
-		else
-			break;
-		ret = put_user(tmp, (unsigned long *) data);
-		pr_debug("PEEKUSR: rdword=0x%08lx\n", tmp);
-		break;
-	/* write the word at location addr in the USER area */
-	case PTRACE_POKEUSR:
-		pr_debug("POKEUSR: addr=0x%08lx, data=0x%08lx\n", addr, data);
-		ret = -EIO;
-		if (addr & 3)
-			break;
-
-		addr = addr >> 2; /* temporary hack. */
-
-		if (addr == PTR_ESTATUS) {
-			data &= SR_MASK;
-			data |= get_reg(child, PTR_ESTATUS) & ~(SR_MASK);
-		}
-		if (addr < ARRAY_SIZE(regoff)) {
-			if (put_reg(child, addr, data))
-				break;
-			ret = 0;
-			break;
-		}
-		break;
-	 /* Get all gp regs from the child. */
-	case PTRACE_GETREGS:
-		pr_debug("GETREGS\n");
-		for (i = 0; i < ARRAY_SIZE(regoff); i++) {
-			tmp = get_reg(child, i);
-			if (put_user(tmp, (unsigned long *) data)) {
-				ret = -EFAULT;
-				break;
-			}
-			data += sizeof(long);
-		}
-		ret = 0;
-		break;
-	/* Set all gp regs in the child. */
-	case PTRACE_SETREGS:
-		pr_debug("SETREGS\n");
-		for (i = 0; i < ARRAY_SIZE(regoff); i++) {
-			if (get_user(tmp, (unsigned long *) data)) {
-				ret = -EFAULT;
-				break;
-			}
-			if (i == PTR_ESTATUS) {
-				tmp &= SR_MASK;
-				tmp |= get_reg(child, PTR_ESTATUS) & ~(SR_MASK);
-			}
-			put_reg(child, i, tmp);
-			data += sizeof(long);
-		}
-		ret = 0;
-		break;
-	default:
-		ret = ptrace_request(child, request, addr, data);
-	}
+	REG_O_ZERO_RANGE(PTR_R0, PTR_R0);
+	REG_O_RANGE(&regs->r1, PTR_R1, PTR_R7);
+	REG_O_RANGE(&regs->r8, PTR_R8, PTR_R15);
+	REG_O_RANGE(sw, PTR_R16, PTR_R23);
+	REG_O_ZERO_RANGE(PTR_R24, PTR_R25); /* et and bt */
+	REG_O_ONE(&regs->gp, PTR_GP);
+	REG_O_ONE(&regs->sp, PTR_SP);
+	REG_O_ONE(&regs->fp, PTR_FP);
+	REG_O_ONE(&regs->ea, PTR_EA);
+	REG_O_ZERO_RANGE(PTR_BA, PTR_BA);
+	REG_O_ONE(&regs->ra, PTR_RA);
+	REG_O_ONE(&regs->ea, PTR_PC); /* use ea for PC */
+	if (!ret)
+		ret = user_regset_copyout_zero(&pos, &count, &kbuf, &ubuf,
+					 PTR_STATUS * 4, -1);
 
 	return ret;
 }
 
-asmlinkage void syscall_trace(void)
+/*
+ * Set the thread state from a regset passed in via ptrace
+ */
+static int genregs_set(struct task_struct *target,
+		       const struct user_regset *regset,
+		       unsigned int pos, unsigned int count,
+		       const void *kbuf, const void __user *ubuf)
 {
-	if (!test_thread_flag(TIF_SYSCALL_TRACE))
-		return;
-	if (!(current->ptrace & PT_PTRACED))
-		return;
-	current->exit_code = SIGTRAP;
-	current->state = TASK_STOPPED;
-	ptrace_notify(SIGTRAP | ((current->ptrace & PT_TRACESYSGOOD)
-				 ? 0x80 : 0));
-	/*
-	 * this isn't the same as continuing with a signal, but it will do
-	 * for normal use.  strace only continues with a signal if the
-	 * stopping signal is not SIGTRAP.  -brl
-	 */
-	if (current->exit_code) {
-		send_sig(current->exit_code, current, 1);
-		current->exit_code = 0;
+	struct pt_regs *regs = task_pt_regs(target);
+	const struct switch_stack *sw = (struct switch_stack *)regs - 1;
+	int ret = 0;
+
+#define REG_IGNORE_RANGE(START, END)		\
+	if (!ret)					\
+		ret = user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf, \
+			START * 4, (END * 4) + 4);
+
+#define REG_IN_ONE(PTR, LOC)	\
+	if (!ret)			\
+		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf, \
+			(void *)(PTR), LOC * 4, (LOC * 4) + 4);
+
+#define REG_IN_RANGE(PTR, START, END)	\
+	if (!ret)				\
+		ret = user_regset_copyin(&pos, &count, &kbuf, &ubuf, \
+			(void *)(PTR), START * 4, (END * 4) + 4);
+
+	REG_IGNORE_RANGE(PTR_R0, PTR_R0);
+	REG_IN_RANGE(&regs->r1, PTR_R1, PTR_R7);
+	REG_IN_RANGE(&regs->r8, PTR_R8, PTR_R15);
+	REG_IN_RANGE(sw, PTR_R16, PTR_R23);
+	REG_IGNORE_RANGE(PTR_R24, PTR_R25); /* et and bt */
+	REG_IN_ONE(&regs->gp, PTR_GP);
+	REG_IN_ONE(&regs->sp, PTR_SP);
+	REG_IN_ONE(&regs->fp, PTR_FP);
+	REG_IN_ONE(&regs->ea, PTR_EA);
+	REG_IGNORE_RANGE(PTR_BA, PTR_BA);
+	REG_IN_ONE(&regs->ra, PTR_RA);
+	REG_IN_ONE(&regs->ea, PTR_PC); /* use ea for PC */
+	if (!ret)
+		ret = user_regset_copyin_ignore(&pos, &count, &kbuf, &ubuf,
+					 PTR_STATUS * 4, -1);
+
+	return ret;
+}
+
+/*
+ * Define the register sets available on Nios2 under Linux
+ */
+enum nios2_regset {
+	REGSET_GENERAL,
+};
+
+static const struct user_regset nios2_regsets[] = {
+	[REGSET_GENERAL] = {
+		.core_note_type = NT_PRSTATUS,
+		.n = NUM_PTRACE_REG,
+		.size = sizeof(unsigned long),
+		.align = sizeof(unsigned long),
+		.get = genregs_get,
+		.set = genregs_set,
 	}
+};
+
+static const struct user_regset_view nios2_user_view = {
+	.name = "nios2",
+	.e_machine = ELF_ARCH,
+	.ei_osabi = ELF_OSABI,
+	.regsets = nios2_regsets,
+	.n = ARRAY_SIZE(nios2_regsets)
+};
+
+const struct user_regset_view *task_user_regset_view(struct task_struct *task)
+{
+	return &nios2_user_view;
+}
+
+void ptrace_disable(struct task_struct *child)
+{
+
+}
+
+long arch_ptrace(struct task_struct *child, long request, unsigned long addr,
+		 unsigned long data)
+{
+	return ptrace_request(child, request, addr, data);
+}
+
+asmlinkage int do_syscall_trace_enter(void)
+{
+	int ret = 0;
+
+	if (test_thread_flag(TIF_SYSCALL_TRACE))
+		ret = tracehook_report_syscall_entry(task_pt_regs(current));
+
+	return ret;
+}
+
+asmlinkage void do_syscall_trace_exit(void)
+{
+	if (test_thread_flag(TIF_SYSCALL_TRACE))
+		tracehook_report_syscall_exit(task_pt_regs(current), 0);
 }

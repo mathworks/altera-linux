@@ -26,6 +26,8 @@
  * @SOC_MBUS_PACKING_VARIABLE:	compressed formats with variable packing
  * @SOC_MBUS_PACKING_1_5X8:	used for packed YUV 4:2:0 formats, where 4
  *				pixels occupy 6 bytes in RAM
+ * @SOC_MBUS_PACKING_EXTEND32:	sample width (e.g., 24 bits) has to be extended
+ *				to 32 bits
  */
 enum soc_mbus_packing {
 	SOC_MBUS_PACKING_NONE,
@@ -34,6 +36,7 @@ enum soc_mbus_packing {
 	SOC_MBUS_PACKING_EXTEND16,
 	SOC_MBUS_PACKING_VARIABLE,
 	SOC_MBUS_PACKING_1_5X8,
+	SOC_MBUS_PACKING_EXTEND32,
 };
 
 /**
@@ -88,16 +91,16 @@ struct soc_mbus_pixelfmt {
  * @fmt:	pixel format description
  */
 struct soc_mbus_lookup {
-	enum v4l2_mbus_pixelcode	code;
+	u32	code;
 	struct soc_mbus_pixelfmt	fmt;
 };
 
 const struct soc_mbus_pixelfmt *soc_mbus_find_fmtdesc(
-	enum v4l2_mbus_pixelcode code,
+	u32 code,
 	const struct soc_mbus_lookup *lookup,
 	int n);
 const struct soc_mbus_pixelfmt *soc_mbus_get_fmtdesc(
-	enum v4l2_mbus_pixelcode code);
+	u32 code);
 s32 soc_mbus_bytes_per_line(u32 width, const struct soc_mbus_pixelfmt *mf);
 s32 soc_mbus_image_size(const struct soc_mbus_pixelfmt *mf,
 			u32 bytes_per_line, u32 height);

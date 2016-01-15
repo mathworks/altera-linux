@@ -11,6 +11,9 @@ UIMAGE_ENTRYADDR = $(shell $(NM) vmlinux | awk '$$NF == "_start" {print $$1}')
 UIMAGE_COMPRESSION = gzip
 
 OBJCOPYFLAGS_vmlinux.bin := -O binary
+
+targets += vmlinux.bin vmlinux.gz vmImage
+
 $(obj)/vmlinux.bin: vmlinux FORCE
 	$(call if_changed,objcopy)
 
@@ -29,10 +32,10 @@ $(obj)/compressed/vmlinux: $(obj)/vmlinux.gz FORCE
 	$(Q)$(MAKE) $(build)=$(obj)/compressed $@
 
 # Rule to build device tree blobs
-DTB_SRC := $(subst ",,$(CONFIG_DTB_SOURCE))
+DTB_SRC := $(patsubst "%",%,$(CONFIG_NIOS2_DTB_SOURCE))
 
 # Make sure the generated dtb gets removed during clean
-extra-$(CONFIG_DTB_SOURCE_BOOL) += system.dtb
+extra-$(CONFIG_NIOS2_DTB_SOURCE_BOOL) += system.dtb
 
 $(obj)/system.dtb: $(DTB_SRC) FORCE
 	$(call cmd,dtc)
@@ -40,9 +43,7 @@ $(obj)/system.dtb: $(DTB_SRC) FORCE
 # Ensure system.dtb exists
 $(obj)/linked_dtb.o: $(obj)/system.dtb
 
-#ifneq ($(CONFIG_DTB_SOURCE),"")
-obj-$(CONFIG_DTB_SOURCE_BOOL) += linked_dtb.o
-#endif
+obj-$(CONFIG_NIOS2_DTB_SOURCE_BOOL) += linked_dtb.o
 
 targets += $(dtb-y)
 

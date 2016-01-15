@@ -992,7 +992,6 @@ static int pm860x_battery_remove(struct platform_device *pdev)
 	free_irq(info->irq_batt, info);
 	free_irq(info->irq_cc, info);
 	power_supply_unregister(&info->battery);
-	platform_set_drvdata(pdev, NULL);
 	return 0;
 }
 
@@ -1024,7 +1023,6 @@ static SIMPLE_DEV_PM_OPS(pm860x_battery_pm_ops,
 static struct platform_driver pm860x_battery_driver = {
 	.driver = {
 		   .name = "88pm860x-battery",
-		   .owner = THIS_MODULE,
 		   .pm = &pm860x_battery_pm_ops,
 	},
 	.probe = pm860x_battery_probe,

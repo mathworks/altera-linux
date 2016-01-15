@@ -1,6 +1,4 @@
 /*
- * Taken from the m68knommu.
- *
  * Copyright (C) 2004, Microtronix Datacom Ltd.
  *
  * All rights reserved.
@@ -15,21 +13,18 @@
  * MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE, GOOD TITLE or
  * NON INFRINGEMENT.  See the GNU General Public License for more
  * details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
- *
  */
 
-#ifndef _ASM_NIOS2_SIGCONTEXT_H
-#define _ASM_NIOS2_SIGCONTEXT_H
+#ifndef _UAPI__ASM_SIGCONTEXT_H
+#define _UAPI__ASM_SIGCONTEXT_H
 
-#include <asm/ptrace.h>
+#include <linux/types.h>
+
+#define MCONTEXT_VERSION 2
 
 struct sigcontext {
-	struct pt_regs regs;
-	unsigned long  sc_mask;	/* old sigmask */
+	int version;
+	unsigned long gregs[32];
 };
 
 #endif

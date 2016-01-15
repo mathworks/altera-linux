@@ -2,8 +2,14 @@ Synopsys Designware Watchdog Timer
 
 Required Properties:
 
-- Compatiblity	: "snps,dw-wdt"
-- reg		: Base address of the watchdog timer register.
+- compatible	: Should contain "snps,dw-wdt"
+- reg		: Base address and size of the watchdog timer registers.
+- clocks	: phandle + clock-specifier for the clock that drives the
+		watchdog timer.
+
+Optional Properties:
+
+- interrupts	: The interrupt used for the watchdog timeout warning.
 
 Example:
 
@@ -12,5 +18,4 @@ Example:
 		reg = <0xffd02000 0x1000>;
 		interrupts = <0 171 4>;
 		clocks = <&per_base_clk>;
-		status = "okay";
 	};

@@ -177,6 +177,7 @@ config BFIN_JTAG_COMM_CONSOLE
 
 config NEWHAVEN_LCD
        tristate "NEWHAVEN LCD"
+       depends on I2C
        help
          Add support for a TTY device on a Newhaven I2C LCD device.
 
@@ -371,7 +372,7 @@ config TRACE_SINK
 	  "Trace data router for MIPI P1149.7 cJTAG standard".
 
 config PPC_EPAPR_HV_BYTECHAN
-	tristate "ePAPR hypervisor byte channel driver"
+	bool "ePAPR hypervisor byte channel driver"
 	depends on PPC
 	select EPAPR_PARAVIRT
 	help

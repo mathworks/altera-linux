@@ -5,7 +5,7 @@
  ******************************************************************************/
 
 /*
- * Copyright (C) 2000 - 2013, Intel Corp.
+ * Copyright (C) 2000 - 2015, Intel Corp.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -41,7 +41,8 @@
  * POSSIBILITY OF SUCH DAMAGES.
  */
 
-#include <linux/export.h>
+#define EXPORT_ACPI_INTERFACES
+
 #include <acpi/acpi.h>
 #include "accommon.h"
 #include "acresrc.h"
@@ -59,11 +60,11 @@ ACPI_MODULE_NAME("rsxface")
 	ACPI_COPY_FIELD(out, in, min_address_fixed);         \
 	ACPI_COPY_FIELD(out, in, max_address_fixed);         \
 	ACPI_COPY_FIELD(out, in, info);                      \
-	ACPI_COPY_FIELD(out, in, granularity);               \
-	ACPI_COPY_FIELD(out, in, minimum);                   \
-	ACPI_COPY_FIELD(out, in, maximum);                   \
-	ACPI_COPY_FIELD(out, in, translation_offset);        \
-	ACPI_COPY_FIELD(out, in, address_length);            \
+	ACPI_COPY_FIELD(out, in, address.granularity);       \
+	ACPI_COPY_FIELD(out, in, address.minimum);           \
+	ACPI_COPY_FIELD(out, in, address.maximum);           \
+	ACPI_COPY_FIELD(out, in, address.translation_offset); \
+	ACPI_COPY_FIELD(out, in, address.address_length);    \
 	ACPI_COPY_FIELD(out, in, resource_source);
 /* Local prototypes */
 static acpi_status
@@ -402,6 +403,7 @@ acpi_resource_to_address64(struct acpi_resource *resource,
 		break;
 
 	default:
+
 		return (AE_BAD_PARAMETER);
 	}
 
@@ -563,11 +565,17 @@ acpi_walk_resource_buffer(struct acpi_buffer * buffer,
 
 	while (resource < resource_end) {
 
-		/* Sanity check the resource */
+		/* Sanity check the resource type */
 
 		if (resource->type > ACPI_RESOURCE_TYPE_MAX) {
 			status = AE_AML_INVALID_RESOURCE_TYPE;
 			break;
+		}
+
+		/* Sanity check the length. It must not be zero, or we loop forever */
+
+		if (!resource->length) {
+			return_ACPI_STATUS(AE_AML_BAD_RESOURCE_LENGTH);
 		}
 
 		/* Invoke the user function, abort on any error returned */

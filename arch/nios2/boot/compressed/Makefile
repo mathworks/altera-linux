@@ -1,6 +1,4 @@
 #
-# linux/arch/nios2/boot/compressed/Makefile
-#
 # create a compressed vmlinux image from the original vmlinux
 #
 

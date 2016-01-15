@@ -25,18 +25,22 @@ TRACE_EVENT(kvm_entry,
 );
 
 TRACE_EVENT(kvm_exit,
-	TP_PROTO(unsigned long vcpu_pc),
-	TP_ARGS(vcpu_pc),
+	TP_PROTO(unsigned int exit_reason, unsigned long vcpu_pc),
+	TP_ARGS(exit_reason, vcpu_pc),
 
 	TP_STRUCT__entry(
+		__field(	unsigned int,	exit_reason	)
 		__field(	unsigned long,	vcpu_pc		)
 	),
 
 	TP_fast_assign(
+		__entry->exit_reason		= exit_reason;
 		__entry->vcpu_pc		= vcpu_pc;
 	),
 
-	TP_printk("PC: 0x%08lx", __entry->vcpu_pc)
+	TP_printk("HSR_EC: 0x%04x, PC: 0x%08lx",
+		  __entry->exit_reason,
+		  __entry->vcpu_pc)
 );
 
 TRACE_EVENT(kvm_guest_fault,
@@ -59,10 +63,9 @@ TRACE_EVENT(kvm_guest_fault,
 		__entry->ipa			= ipa;
 	),
 
-	TP_printk("guest fault at PC %#08lx (hxfar %#08lx, "
-		  "ipa %#16llx, hsr %#08lx",
-		  __entry->vcpu_pc, __entry->hxfar,
-		  __entry->ipa, __entry->hsr)
+	TP_printk("ipa %#llx, hsr %#08lx, hxfar %#08lx, pc %#08lx",
+		  __entry->ipa, __entry->hsr,
+		  __entry->hxfar, __entry->vcpu_pc)
 );
 
 TRACE_EVENT(kvm_irq_line,
@@ -141,19 +144,22 @@ TRACE_EVENT(kvm_emulate_cp15_imp,
 			__entry->CRm, __entry->Op2)
 );
 
-TRACE_EVENT(kvm_wfi,
-	TP_PROTO(unsigned long vcpu_pc),
-	TP_ARGS(vcpu_pc),
+TRACE_EVENT(kvm_wfx,
+	TP_PROTO(unsigned long vcpu_pc, bool is_wfe),
+	TP_ARGS(vcpu_pc, is_wfe),
 
 	TP_STRUCT__entry(
 		__field(	unsigned long,	vcpu_pc		)
+		__field(		 bool,	is_wfe		)
 	),
 
 	TP_fast_assign(
 		__entry->vcpu_pc		= vcpu_pc;
+		__entry->is_wfe			= is_wfe;
 	),
 
-	TP_printk("guest executed wfi at: 0x%08lx", __entry->vcpu_pc)
+	TP_printk("guest executed wf%c at: 0x%08lx",
+		__entry->is_wfe ? 'e' : 'i', __entry->vcpu_pc)
 );
 
 TRACE_EVENT(kvm_unmap_hva,
@@ -222,6 +228,45 @@ TRACE_EVENT(kvm_hvc,
 
 	TP_printk("HVC at 0x%08lx (r0: 0x%08lx, imm: 0x%lx",
 		  __entry->vcpu_pc, __entry->r0, __entry->imm)
+);
+
+TRACE_EVENT(kvm_set_way_flush,
+	    TP_PROTO(unsigned long vcpu_pc, bool cache),
+	    TP_ARGS(vcpu_pc, cache),
+
+	    TP_STRUCT__entry(
+		    __field(	unsigned long,	vcpu_pc		)
+		    __field(	bool,		cache		)
+	    ),
+
+	    TP_fast_assign(
+		    __entry->vcpu_pc		= vcpu_pc;
+		    __entry->cache		= cache;
+	    ),
+
+	    TP_printk("S/W flush at 0x%016lx (cache %s)",
+		      __entry->vcpu_pc, __entry->cache ? "on" : "off")
+);
+
+TRACE_EVENT(kvm_toggle_cache,
+	    TP_PROTO(unsigned long vcpu_pc, bool was, bool now),
+	    TP_ARGS(vcpu_pc, was, now),
+
+	    TP_STRUCT__entry(
+		    __field(	unsigned long,	vcpu_pc		)
+		    __field(	bool,		was		)
+		    __field(	bool,		now		)
+	    ),
+
+	    TP_fast_assign(
+		    __entry->vcpu_pc		= vcpu_pc;
+		    __entry->was		= was;
+		    __entry->now		= now;
+	    ),
+
+	    TP_printk("VM op at 0x%016lx (cache was %s, now %s)",
+		      __entry->vcpu_pc, __entry->was ? "on" : "off",
+		      __entry->now ? "on" : "off")
 );
 
 #endif /* _TRACE_KVM_H */

@@ -12,17 +12,8 @@
 #include <linux/smp.h>
 #include <linux/irq.h>
 
-#include <asm/smtc_ipi.h>
 #include <asm/time.h>
 #include <asm/cevt-r4k.h>
-#include <asm/gic.h>
-
-/*
- * The SMTC Kernel for the 34K, 1004K, et. al. replaces several
- * of these routines with SMTC-specific variants.
- */
-
-#ifndef CONFIG_MIPS_MT_SMTC
 
 static int mips_next_event(unsigned long delta,
 			   struct clock_event_device *evt)
@@ -37,8 +28,6 @@ static int mips_next_event(unsigned long delta,
 	return res;
 }
 
-#endif /* CONFIG_MIPS_MT_SMTC */
-
 void mips_set_clock_mode(enum clock_event_mode mode,
 				struct clock_event_device *evt)
 {
@@ -48,11 +37,9 @@ void mips_set_clock_mode(enum clock_event_mode mode,
 DEFINE_PER_CPU(struct clock_event_device, mips_clockevent_device);
 int cp0_timer_irq_installed;
 
-#ifndef CONFIG_MIPS_MT_SMTC
-
 irqreturn_t c0_compare_interrupt(int irq, void *dev_id)
 {
-	const int r2 = cpu_has_mips_r2;
+	const int r2 = cpu_has_mips_r2_r6;
 	struct clock_event_device *cd;
 	int cpu = smp_processor_id();
 
@@ -81,8 +68,6 @@ out:
 	return IRQ_HANDLED;
 }
 
-#endif /* Not CONFIG_MIPS_MT_SMTC */
-
 struct irqaction c0_compare_irqaction = {
 	.handler = c0_compare_interrupt,
 	.flags = IRQF_PERCPU | IRQF_TIMER,
@@ -99,10 +84,7 @@ void mips_event_handler(struct clock_event_device *dev)
  */
 static int c0_compare_int_pending(void)
 {
-#ifdef CONFIG_IRQ_GIC
-	if (cpu_has_veic)
-		return gic_get_timer_pending();
-#endif
+	/* When cpu_has_mips_r2, this checks Cause.TI instead of Cause.IP7 */
 	return (read_c0_cause() >> cp0_compare_irq_shift) & (1ul << CAUSEB_IP);
 }
 
@@ -117,6 +99,10 @@ int c0_compare_int_usable(void)
 {
 	unsigned int delta;
 	unsigned int cnt;
+
+#ifdef CONFIG_KVM_GUEST
+    return 1;
+#endif
 
 	/*
 	 * IP7 already pending?	 Try to clear it by acking the timer.
@@ -165,9 +151,7 @@ int c0_compare_int_usable(void)
 	return 1;
 }
 
-#ifndef CONFIG_MIPS_MT_SMTC
-
-int __cpuinit r4k_clockevent_init(void)
+int r4k_clockevent_init(void)
 {
 	unsigned int cpu = smp_processor_id();
 	struct clock_event_device *cd;
@@ -191,7 +175,9 @@ int __cpuinit r4k_clockevent_init(void)
 	cd = &per_cpu(mips_clockevent_device, cpu);
 
 	cd->name		= "MIPS";
-	cd->features		= CLOCK_EVT_FEAT_ONESHOT;
+	cd->features		= CLOCK_EVT_FEAT_ONESHOT |
+				  CLOCK_EVT_FEAT_C3STOP |
+				  CLOCK_EVT_FEAT_PERCPU;
 
 	clockevent_set_clock(cd, mips_hpt_frequency);
 
@@ -218,4 +204,3 @@ int __cpuinit r4k_clockevent_init(void)
 	return 0;
 }
 
-#endif /* Not CONFIG_MIPS_MT_SMTC */

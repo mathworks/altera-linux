@@ -19,9 +19,20 @@
 
 #include <asm/traps.h>
 #include <asm/sections.h>
-
+#include <asm/uaccess.h>
 
 static DEFINE_SPINLOCK(die_lock);
+
+static void _send_sig(int signo, int code, unsigned long addr)
+{
+	siginfo_t info;
+
+	info.si_signo = signo;
+	info.si_errno = 0;
+	info.si_code = code;
+	info.si_addr = (void __user *) addr;
+	force_sig_info(signo, &info, current);
+}
 
 void die(const char *str, struct pt_regs *regs, long err)
 {
@@ -39,28 +50,11 @@ void die(const char *str, struct pt_regs *regs, long err)
 
 void _exception(int signo, struct pt_regs *regs, int code, unsigned long addr)
 {
-	siginfo_t info;
-
 	if (!user_mode(regs))
 		die("Exception in kernel mode", regs, signo);
 
-	info.si_signo = signo;
-	info.si_errno = 0;
-	info.si_code = code;
-	info.si_addr = (void __user *) addr;
-	force_sig_info(signo, &info, current);
+	_send_sig(signo, code, addr);
 }
-
-/*
- * The architecture-independent backtrace generator
- */
-void dump_stack(void)
-{
-	unsigned long stack;
-
-	show_stack(current, &stack);
-}
-EXPORT_SYMBOL(dump_stack);
 
 /*
  * The show_stack is an external API which we do not use ourselves.
@@ -132,7 +126,7 @@ asmlinkage void breakpoint_c(struct pt_regs *fp)
 	_exception(SIGTRAP, fp, TRAP_BRKPT, fp->ea);
 }
 
-#if defined(CONFIG_MMU) && !defined(CONFIG_ALIGNMENT_TRAP)
+#ifndef CONFIG_NIOS2_ALIGNMENT_TRAP
 /* Alignment exception handler */
 asmlinkage void handle_unaligned_c(struct pt_regs *fp, int cause)
 {
@@ -156,7 +150,7 @@ asmlinkage void handle_unaligned_c(struct pt_regs *fp, int cause)
 
 	_exception(SIGBUS, fp, BUS_ADRALN, addr);
 }
-#endif /* CONFIG_MMU && !CONFIG_ALIGNMENT_TRAP */
+#endif /* CONFIG_NIOS2_ALIGNMENT_TRAP */
 
 /* Illegal instruction handler */
 asmlinkage void handle_illegal_c(struct pt_regs *fp)
@@ -193,7 +187,19 @@ asmlinkage void unhandled_exception(struct pt_regs *regs, int cause)
 	show_regs(regs);
 
 	pr_emerg("opcode: 0x%08lx\n", *(unsigned long *)(regs->ea));
+}
 
-	/* TODO: What should we do here? WRS code was halting the ISS with
-	 * WRCTL(6,1) and spinning forever afterwards. */
+asmlinkage void handle_trap_1_c(struct pt_regs *fp)
+{
+	_send_sig(SIGUSR1, 0, fp->ea);
+}
+
+asmlinkage void handle_trap_2_c(struct pt_regs *fp)
+{
+	_send_sig(SIGUSR2, 0, fp->ea);
+}
+
+asmlinkage void handle_trap_3_c(struct pt_regs *fp)
+{
+	_send_sig(SIGILL, ILL_ILLTRP, fp->ea);
 }

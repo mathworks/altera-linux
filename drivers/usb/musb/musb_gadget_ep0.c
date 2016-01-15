@@ -85,7 +85,7 @@ static int service_tx_status_request(
 
 	switch (recip) {
 	case USB_RECIP_DEVICE:
-		result[0] = musb->is_self_powered << USB_DEVICE_SELF_POWERED;
+		result[0] = musb->g.is_selfpowered << USB_DEVICE_SELF_POWERED;
 		result[0] |= musb->may_wakeup << USB_DEVICE_REMOTE_WAKEUP;
 		if (musb->g.is_otg) {
 			result[0] |= musb->g.b_hnp_enable
@@ -505,8 +505,10 @@ static void ep0_rxstate(struct musb *musb)
 			req->status = -EOVERFLOW;
 			count = len;
 		}
-		musb_read_fifo(&musb->endpoints[0], count, buf);
-		req->actual += count;
+		if (count > 0) {
+			musb_read_fifo(&musb->endpoints[0], count, buf);
+			req->actual += count;
+		}
 		csr = MUSB_CSR0_P_SVDRXPKTRDY;
 		if (count < 64 || req->actual == req->length) {
 			musb->ep0_state = MUSB_EP0_STAGE_STATUSIN;
