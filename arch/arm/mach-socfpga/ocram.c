@@ -17,6 +17,29 @@
 #include <linux/genalloc.h>
 #include <linux/of_platform.h>
 
+#include "ecc.h"
+
+#define SOCFPGA_A10_OCRAM_ECC_INTMASK	BIT(1)
+
+static int socfpga_init_arria10_ocram_ecc(void)
+{
+	struct device_node *np;
+	int ret;
+
+	np = of_find_compatible_node(NULL, NULL, "altr,a10-ocram-edac");
+	if (!np) {
+		pr_err("SOCFPGA: Unable to find altr,a10-ocram-edac in dtb\n");
+		ret = -ENODEV;
+		goto out;
+	}
+
+	ret = socfpga_init_a10_ecc(np, SOCFPGA_A10_OCRAM_ECC_INTMASK, 0);
+
+out:
+	of_node_put(np);
+	return ret;
+}
+
 void socfpga_init_ocram_ecc(void)
 {
 	struct device_node *np;
@@ -25,6 +48,12 @@ void socfpga_init_ocram_ecc(void)
 	void __iomem  *mapped_ocr_edac_addr;
 	size_t size;
 	struct gen_pool *gp;
+
+	if (of_machine_is_compatible("altr,socfpga-arria10")) {
+		if (socfpga_init_arria10_ocram_ecc() == 0)
+			pr_alert("SOCFPGA: Success Initializing OCRAM ECC for Arria10");
+		return;
+	}
 
 	np = of_find_compatible_node(NULL, NULL, "altr,ocram-edac");
 	if (!np) {
@@ -40,7 +69,7 @@ void socfpga_init_ocram_ecc(void)
 		return;
 	}
 
-	gp = of_get_named_gen_pool(np, "iram", 0);
+	gp = of_gen_pool_get(np, "iram", 0);
 	if (!gp) {
 		pr_err("SOCFPGA: OCRAM cannot find gen pool\n");
 		return;
@@ -76,6 +105,8 @@ void socfpga_init_ocram_ecc(void)
 	/* Clear any pending OCRAM ECC interrupts, then enable ECC */
 	writel(0x18, mapped_ocr_edac_addr);
 	writel(0x19, mapped_ocr_edac_addr);
+
+	iounmap(mapped_ocr_edac_addr);
 
 	pr_alert("SOCFPGA: Success Initializing OCRAM");
 

@@ -15,8 +15,7 @@
  * Based from clk-highbank.c
  *
  */
-#include <linux/clk.h>
-#include <linux/clkdev.h>
+#include <linux/slab.h>
 #include <linux/clk-provider.h>
 #include <linux/io.h>
 #include <linux/of.h>
@@ -36,7 +35,7 @@ static unsigned long clk_periclk_recalc_rate(struct clk_hw *hwclk,
 	} else {
 		if (socfpgaclk->div_reg) {
 			val = readl(socfpgaclk->div_reg) >> socfpgaclk->shift;
-			val &= div_mask(socfpgaclk->width);
+			val &= GENMASK(socfpgaclk->width - 1, 0);
 			parent_rate /= (val + 1);
 		}
 		div = ((readl(socfpgaclk->hw.reg) & 0x1ff) + 1);
@@ -70,7 +69,6 @@ static __init void __socfpga_periph_init(struct device_node *node,
 	int rc;
 	u32 fixed_div;
 	u32 div_reg[3];
-	int i = 0;
 
 	of_property_read_u32(node, "reg", &reg);
 
@@ -86,7 +84,7 @@ static __init void __socfpga_periph_init(struct device_node *node,
 		periph_clk->shift = div_reg[1];
 		periph_clk->width = div_reg[2];
 	} else {
-		periph_clk->div_reg = 0;
+		periph_clk->div_reg = NULL;
 	}
 
 	rc = of_property_read_u32(node, "fixed-divider", &fixed_div);
@@ -100,12 +98,10 @@ static __init void __socfpga_periph_init(struct device_node *node,
 	init.name = clk_name;
 	init.ops = ops;
 	init.flags = 0;
-	while (i < SOCFPGA_MAX_PARENTS && (parent_name[i] =
-			of_clk_get_parent_name(node, i)) != NULL)
-		i++;
 
+	init.num_parents = of_clk_parent_fill(node, parent_name,
+					      SOCFPGA_MAX_PARENTS);
 	init.parent_names = parent_name;
-	init.num_parents = i;
 
 	periph_clk->hw.hw.init = &init;
 

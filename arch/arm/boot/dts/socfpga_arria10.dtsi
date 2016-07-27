@@ -16,14 +16,21 @@
 
 #include "skeleton.dtsi"
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/reset/altr,rst-mgr-a10.h>
 
 / {
 	#address-cells = <1>;
 	#size-cells = <1>;
 
+	aliases {
+		serial0 = &uart0;
+		serial1 = &uart1;
+	};
+
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
+		enable-method = "altr,socfpga-a10-smp";
 
 		cpu@0 {
 			compatible = "arm,cortex-a9";
@@ -71,10 +78,13 @@
 					     <0 87 IRQ_TYPE_LEVEL_HIGH>,
 					     <0 88 IRQ_TYPE_LEVEL_HIGH>,
 					     <0 89 IRQ_TYPE_LEVEL_HIGH>,
-					     <0 90 IRQ_TYPE_LEVEL_HIGH>;
+					     <0 90 IRQ_TYPE_LEVEL_HIGH>,
+					     <0 91 IRQ_TYPE_LEVEL_HIGH>;
 				#dma-cells = <1>;
 				#dma-channels = <8>;
 				#dma-requests = <32>;
+				clocks = <&l4_main_clk>;
+				clock-names = "apb_pclk";
 			};
 		};
 
@@ -408,6 +418,8 @@
 			rx-fifo-depth = <16384>;
 			clocks = <&l4_mp_clk>;
 			clock-names = "stmmaceth";
+			resets = <&rst EMAC0_RESET>;
+			reset-names = "stmmaceth";
 			status = "disabled";
 		};
 
@@ -423,12 +435,16 @@
 			snps,perfect-filter-entries = <128>;
 			tx-fifo-depth = <4096>;
 			rx-fifo-depth = <16384>;
+			clocks = <&l4_mp_clk>;
+			clock-names = "stmmaceth";
+			resets = <&rst EMAC1_RESET>;
+			reset-names = "stmmaceth";
 			status = "disabled";
 		};
 
 		gmac2: ethernet@ff804000 {
 			compatible = "altr,socfpga-stmmac", "snps,dwmac-3.72a", "snps,dwmac";
-			altr,sysmgr-syscon = <&sysmgr 0x4c 0>;
+			altr,sysmgr-syscon = <&sysmgr 0x4C 0>;
 			reg = <0xff804000 0x2000>;
 			interrupts = <0 94 IRQ_TYPE_LEVEL_HIGH>;
 			interrupt-names = "macirq";
@@ -438,6 +454,8 @@
 			snps,perfect-filter-entries = <128>;
 			tx-fifo-depth = <4096>;
 			rx-fifo-depth = <16384>;
+			clocks = <&l4_mp_clk>;
+			clock-names = "stmmaceth";
 			status = "disabled";
 		};
 
@@ -555,6 +573,17 @@
 			status = "disabled";
 		};
 
+		sdr: sdr@ffc25000 {
+			compatible = "syscon";
+			reg = <0xffcfb100 0x80>;
+		};
+
+		sdramedac {
+			compatible = "altr,sdram-edac-a10";
+			altr,sdr-syscon = <&sdr>;
+			interrupts = <0 2 4>, <0 0 4>;
+		};
+
 		spi1: spi@ffda5000 {
 			compatible = "snps,dw-apb-ssi";
 			#address-cells = <1>;
@@ -563,7 +592,6 @@
 			interrupts = <0 102 4>;
 			num-chipselect = <4>;
 			bus-num = <0>;
-			32bit_access;
 			tx-dma-channel = <&pdma 16>;
 			rx-dma-channel = <&pdma 17>;
 			clocks = <&spi_m_clk>;
@@ -576,6 +604,42 @@
 			interrupts = <0 18 IRQ_TYPE_LEVEL_HIGH>;
 			cache-unified;
 			cache-level = <2>;
+		};
+
+		l2edac@ffd06000 {
+			compatible = "altr,a10-l2-edac";
+			reg = <0xffd06000 0x200>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		ocramedac@ff8c3000 {
+			compatible = "altr,a10-ocram-edac";
+			reg = <0xff8c3000 0x5000>;
+			iram = <&ocram>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		nandedac_buf@ff8c2000 {
+			compatible = "altr,a10-nand-buf-edac";
+			reg = <0xff8c2000 0x400>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		nandedac_rd@ff8c2400 {
+			compatible = "altr,a10-nand-rd-edac";
+			reg = <0xff8c2400 0x400>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+		};
+
+		nandedac_wr@ff8c2800 {
+			compatible = "altr,a10-nand-wr-edac";
+			reg = <0xff8c2800 0x400>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
 		};
 
 		mmc: dwmmc0@ff808000 {
@@ -602,7 +666,7 @@
 			reg = <0xff809000 0x100>,
 				<0xffa00000 0x100000>;
 			interrupts = <0 100 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&qspi_clk>;
+			clocks = <&l4_main_clk>;
 			ext-decoder = <0>;  /* external decoder */
 			num-chipselect = <4>;
 			fifo-depth = <128>;
@@ -614,6 +678,12 @@
 			#reset-cells = <1>;
 			compatible = "altr,rst-mgr";
 			reg = <0xffd05000 0x100>;
+			altr,modrst-offset = <0x20>;
+		};
+
+		scu: snoop-control-unit@ffffc000 {
+			compatible = "arm,cortex-a9-scu";
+			reg = <0xffffc000 0x100>;
 		};
 
 		sysmgr: sysmgr@ffd06000 {
@@ -631,7 +701,7 @@
 		};
 
 		timer0: timer0@ffc02700 {
-			compatible = "snps,dw-apb-timer-sp";
+			compatible = "snps,dw-apb-timer";
 			interrupts = <0 115 IRQ_TYPE_LEVEL_HIGH>;
 			reg = <0xffc02700 0x100>;
 			clocks = <&l4_sp_clk>;
@@ -639,7 +709,7 @@
 		};
 
 		timer1: timer1@ffc02800 {
-			compatible = "snps,dw-apb-timer-sp";
+			compatible = "snps,dw-apb-timer";
 			interrupts = <0 116 IRQ_TYPE_LEVEL_HIGH>;
 			reg = <0xffc02800 0x100>;
 			clocks = <&l4_sp_clk>;
@@ -647,7 +717,7 @@
 		};
 
 		timer2: timer2@ffd00000 {
-			compatible = "snps,dw-apb-timer-osc";
+			compatible = "snps,dw-apb-timer";
 			interrupts = <0 117 IRQ_TYPE_LEVEL_HIGH>;
 			reg = <0xffd00000 0x100>;
 			clocks = <&l4_sys_free_clk>;
@@ -655,7 +725,7 @@
 		};
 
 		timer3: timer3@ffd00100 {
-			compatible = "snps,dw-apb-timer-osc";
+			compatible = "snps,dw-apb-timer";
 			interrupts = <0 118 IRQ_TYPE_LEVEL_HIGH>;
 			reg = <0xffd01000 0x100>;
 			clocks = <&l4_sys_free_clk>;
@@ -668,6 +738,7 @@
 			interrupts = <0 110 IRQ_TYPE_LEVEL_HIGH>;
 			reg-shift = <2>;
 			reg-io-width = <4>;
+			clocks = <&l4_sp_clk>;
 			status = "disabled";
 		};
 
@@ -702,6 +773,8 @@
 			compatible = "snps,dwc2";
 			reg = <0xffb40000 0xffff>;
 			interrupts = <0 96 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&usb_clk>;
+			clock-names = "otg";
 			phys = <&usbphy0>;
 			phy-names = "usb2-phy";
 			status = "disabled";

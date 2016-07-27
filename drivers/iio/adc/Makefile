@@ -4,6 +4,8 @@
 
 # When adding new entries keep the list in alphabetical order
 obj-$(CONFIG_AD_SIGMA_DELTA) += ad_sigma_delta.o
+obj-$(CONFIG_AD7091R5) += ad7091r5.o ad7091r-base.o
+obj-$(CONFIG_AD7173) += ad7173.o
 obj-$(CONFIG_AD7266) += ad7266.o
 obj-$(CONFIG_AD7291) += ad7291.o
 obj-$(CONFIG_AD7298) += ad7298.o
@@ -13,10 +15,28 @@ obj-$(CONFIG_AD7791) += ad7791.o
 obj-$(CONFIG_AD7793) += ad7793.o
 obj-$(CONFIG_AD7887) += ad7887.o
 obj-$(CONFIG_AD799X) += ad799x.o
+
+cf_axi_adc-y := cf_axi_adc_core.o cf_axi_adc_ring.o cf_axi_adc_ring_stream.o
+obj-$(CONFIG_CF_AXI_ADC) += cf_axi_adc.o
+
+obj-$(CONFIG_AD6676) += ad6676.o
+obj-$(CONFIG_AD9361) += ad9361.o ad9361_conv.o
+obj-$(CONFIG_AD9467) += ad9467.o
+obj-$(CONFIG_ADMC) += admc_adc.o admc_speed.o admc_ctrl.o ad_adc.o
+
+obj-$(CONFIG_CF_AXI_FFT) += cf_axi_fft_core.o
+
+obj-$(CONFIG_AXI_JESD204B) += cf_axi_jesd204b.o cf_axi_jesd204b_v51.o cf_axi_jesd204b_gt.o
+
+obj-$(CONFIG_ALTERA_XCVR) += altera_xcvr.o
+
 obj-$(CONFIG_AT91_ADC) += at91_adc.o
 obj-$(CONFIG_AXP288_ADC) += axp288_adc.o
+obj-$(CONFIG_BERLIN2_ADC) += berlin2-adc.o
 obj-$(CONFIG_CC10001_ADC) += cc10001_adc.o
+obj-$(CONFIG_DA9150_GPADC) += da9150-gpadc.o
 obj-$(CONFIG_EXYNOS_ADC) += exynos_adc.o
+obj-$(CONFIG_HI8435) += hi8435.o
 obj-$(CONFIG_LP8788_ADC) += lp8788_adc.o
 obj-$(CONFIG_MAX1027) += max1027.o
 obj-$(CONFIG_MAX1363) += max1363.o

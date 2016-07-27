@@ -24,6 +24,7 @@
  * @colorspace:	colorspace of the data (from enum v4l2_colorspace)
  * @ycbcr_enc:	YCbCr encoding of the data (from enum v4l2_ycbcr_encoding)
  * @quantization: quantization of the data (from enum v4l2_quantization)
+ * @xfer_func:  transfer function of the data (from enum v4l2_xfer_func)
  */
 struct v4l2_mbus_framefmt {
 	__u32			width;
@@ -33,7 +34,8 @@ struct v4l2_mbus_framefmt {
 	__u32			colorspace;
 	__u16			ycbcr_enc;
 	__u16			quantization;
-	__u32			reserved[6];
+	__u16			xfer_func;
+	__u16			reserved[11];
 };
 
 #ifndef __KERNEL__
@@ -65,6 +67,8 @@ enum v4l2_mbus_pixelcode {
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(RGB888_2X12_BE),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(RGB888_2X12_LE),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(ARGB8888_1X32),
+	V4L2_MBUS_FROM_MEDIA_BUS_FMT(RBG888_1X24),
+	V4L2_MBUS_FROM_MEDIA_BUS_FMT(RGB888_1X32_PADHI),
 
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(Y8_1X8),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(UV8_1X8),
@@ -101,6 +105,7 @@ enum v4l2_mbus_pixelcode {
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(VYUY12_1X24),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(YUYV12_1X24),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(YVYU12_1X24),
+	V4L2_MBUS_FROM_MEDIA_BUS_FMT(VUY8_1X24),
 
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(SBGGR8_1X8),
 	V4L2_MBUS_FROM_MEDIA_BUS_FMT(SGBRG8_1X8),

@@ -19,6 +19,7 @@
  */
 
 #include <linux/clk/zynq.h>
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
@@ -47,6 +48,7 @@ static void __iomem *zynq_clkc_base;
 #define SLCR_CAN_MIOCLK_CTRL		(zynq_clkc_base + 0x60)
 #define SLCR_DBG_CLK_CTRL		(zynq_clkc_base + 0x64)
 #define SLCR_PCAP_CLK_CTRL		(zynq_clkc_base + 0x68)
+#define SLCR_TOPSW_CLK_CTRL		(zynq_clkc_base + 0x6c)
 #define SLCR_FPGA0_CLK_CTRL		(zynq_clkc_base + 0x70)
 #define SLCR_621_TRUE			(zynq_clkc_base + 0xc4)
 #define SLCR_SWDT_CLK_SEL		(zynq_clkc_base + 0x204)
@@ -85,22 +87,71 @@ static DEFINE_SPINLOCK(canmioclk_lock);
 static DEFINE_SPINLOCK(dbgclk_lock);
 static DEFINE_SPINLOCK(aperclk_lock);
 
-static const char *armpll_parents[] __initconst = {"armpll_int", "ps_clk"};
-static const char *ddrpll_parents[] __initconst = {"ddrpll_int", "ps_clk"};
-static const char *iopll_parents[] __initconst = {"iopll_int", "ps_clk"};
-static const char *gem0_mux_parents[] __initconst = {"gem0_div1", "dummy_name"};
-static const char *gem1_mux_parents[] __initconst = {"gem1_div1", "dummy_name"};
-static const char *can0_mio_mux2_parents[] __initconst = {"can0_gate",
+static const char *const armpll_parents[] __initconst = {"armpll_int",
+	"ps_clk"};
+static const char *const ddrpll_parents[] __initconst = {"ddrpll_int",
+	"ps_clk"};
+static const char *const iopll_parents[] __initconst = {"iopll_int",
+	"ps_clk"};
+static const char *gem0_mux_parents[] __initdata = {"gem0_div1", "dummy_name"};
+static const char *gem1_mux_parents[] __initdata = {"gem1_div1", "dummy_name"};
+static const char *const can0_mio_mux2_parents[] __initconst = {"can0_gate",
 	"can0_mio_mux"};
-static const char *can1_mio_mux2_parents[] __initconst = {"can1_gate",
+static const char *const can1_mio_mux2_parents[] __initconst = {"can1_gate",
 	"can1_mio_mux"};
-static const char *dbg_emio_mux_parents[] __initconst = {"dbg_div",
+static const char *dbg_emio_mux_parents[] __initdata = {"dbg_div",
 	"dummy_name"};
 
-static const char *dbgtrc_emio_input_names[] __initconst = {"trace_emio_clk"};
-static const char *gem0_emio_input_names[] __initconst = {"gem0_emio_clk"};
-static const char *gem1_emio_input_names[] __initconst = {"gem1_emio_clk"};
-static const char *swdt_ext_clk_input_names[] __initconst = {"swdt_ext_clk"};
+static const char *const dbgtrc_emio_input_names[] __initconst = {
+	"trace_emio_clk"};
+static const char *const gem0_emio_input_names[] __initconst = {
+	"gem0_emio_clk"};
+static const char *const gem1_emio_input_names[] __initconst = {
+	"gem1_emio_clk"};
+static const char *const swdt_ext_clk_input_names[] __initconst = {
+	"swdt_ext_clk"};
+
+#ifdef CONFIG_SUSPEND
+static struct clk *iopll_save_parent;
+
+#define TOPSW_CLK_CTRL_DIS_MASK	BIT(0)
+
+int zynq_clk_suspend_early(void)
+{
+	int ret;
+
+	iopll_save_parent = clk_get_parent(clks[iopll]);
+
+	ret = clk_set_parent(clks[iopll], ps_clk);
+	if (ret)
+		pr_info("%s: reparent iopll failed %d\n", __func__, ret);
+
+	return 0;
+}
+
+void zynq_clk_resume_late(void)
+{
+	clk_set_parent(clks[iopll], iopll_save_parent);
+}
+
+void zynq_clk_topswitch_enable(void)
+{
+	u32 reg;
+
+	reg = readl(SLCR_TOPSW_CLK_CTRL);
+	reg &= ~TOPSW_CLK_CTRL_DIS_MASK;
+	writel(reg, SLCR_TOPSW_CLK_CTRL);
+}
+
+void zynq_clk_topswitch_disable(void)
+{
+	u32 reg;
+
+	reg = readl(SLCR_TOPSW_CLK_CTRL);
+	reg |= TOPSW_CLK_CTRL_DIS_MASK;
+	writel(reg, SLCR_TOPSW_CLK_CTRL);
+}
+#endif
 
 static void __init zynq_clk_register_fclk(enum zynq_clk fclk,
 		const char *clk_name, void __iomem *fclk_ctrl_reg,

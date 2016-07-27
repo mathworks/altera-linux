@@ -1,6 +1,6 @@
 /*
  * Copyright 2012 Pavel Machek <pavel@denx.de>
- * Copyright (C) 2012 Altera Corporation
+ * Copyright (C) 2012-2015 Altera Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -27,9 +27,20 @@
 
 #define SOCFPGA_A10_RSTMGR_CTRL		0xC
 #define SOCFPGA_A10_RSTMGR_MODMPURST	0x20
+#define SOCFPGA_A10_RSTMGR_CTRL		0xC
 #define SOCFPGA_A10_RSTMGR_PER0MODRST	0x24
 #define SOCFPGA_A10_RSTMGR_PER1MODRST	0x28
 #define SOCFPGA_A10_RSTMGR_BRGMODRST	0x2C
+
+/* A10 System Manager L2 cache ECC control register */
+#define SOCFPGA_A10_SYSMGR_L2_ECC_CTRL	0x10
+
+/* A10 System Manager ECC interrupt mask control registers */
+#define SOCFPGA_A10_SYSMGR_ECC_INTMASK_SET	0x94
+#define SOCFPGA_A10_SYSMGR_ECC_INTMASK_CLR	0x98
+
+#define SOCFPGA_A10_MPU_CTRL_L2_ECC_EN		BIT(0)
+#define SOCFPGA_A10_ECC_INTMASK_CLR_EN		BIT(0)
 
 /* System Manager bits */
 #define RSTMGR_CTRL_SWCOLDRSTREQ	0x1	/* Cold Reset */
@@ -37,8 +48,7 @@
 
 #define RSTMGR_MPUMODRST_CPU1		0x2     /* CPU1 Reset */
 
-extern void socfpga_secondary_startup(void);
-extern void __iomem *socfpga_scu_base_addr;
+#define SOCFPGA_REVISION_DEFAULT	0x1
 
 /*MPU Module Reset Register */
 #define RSTMGR_MPUMODRST_CPU0	0x1	/*CPU0 Reset*/
@@ -57,8 +67,11 @@ extern void __iomem *socfpga_scu_base_addr;
 
 extern void __iomem *sys_manager_base_addr;
 extern void __iomem *rst_manager_base_addr;
+extern void __iomem *sdr_ctl_base_addr;
 
-extern struct smp_operations socfpga_smp_ops;
+u32 socfpga_sdram_self_refresh(u32 sdr_base);
+extern unsigned int socfpga_sdram_self_refresh_sz;
+
 extern char secondary_trampoline, secondary_trampoline_end;
 
 extern unsigned long socfpga_cpu1start_addr;

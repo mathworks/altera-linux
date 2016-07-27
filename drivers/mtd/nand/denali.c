@@ -231,7 +231,6 @@ static void nand_onfi_timing_set(struct denali_nand_info *denali,
 	uint16_t Twhr[6] = {120, 80, 80, 60, 60, 60};
 	uint16_t Tcs[6] = {70, 35, 25, 25, 20, 15};
 
-	uint16_t TclsRising = 1;
 	uint16_t data_invalid_rhoh, data_invalid_rloh, data_invalid;
 	uint16_t dv_window = 0;
 	uint16_t en_lo, en_hi;
@@ -282,8 +281,6 @@ static void nand_onfi_timing_set(struct denali_nand_info *denali,
 	re_2_re = CEIL_DIV(Trhz[mode], CLK_X);
 	we_2_re = CEIL_DIV(Twhr[mode], CLK_X);
 	cs_cnt = CEIL_DIV((Tcs[mode] - Trp[mode]), CLK_X);
-	if (!TclsRising)
-		cs_cnt = CEIL_DIV(Tcs[mode], CLK_X);
 	if (cs_cnt == 0)
 		cs_cnt = 1;
 
@@ -467,8 +464,17 @@ static void find_valid_banks(struct denali_nand_info *denali)
 static void detect_max_banks(struct denali_nand_info *denali)
 {
 	uint32_t features = ioread32(denali->flash_reg + FEATURES);
+	/*
+	 * Read the revision register, so we can calculate the max_banks
+	 * properly: the encoding changed from rev 5.0 to 5.1
+	 */
+	u32 revision = MAKE_COMPARABLE_REVISION(
+				ioread32(denali->flash_reg + REVISION));
 
-	denali->max_banks = 2 << (features & FEATURES__N_BANKS);
+	if (revision < REVISION_5_1)
+		denali->max_banks = 2 << (features & FEATURES__N_BANKS);
+	else
+		denali->max_banks = 1 << (features & FEATURES__N_BANKS);
 }
 
 static void detect_partition_feature(struct denali_nand_info *denali)
@@ -1129,7 +1135,7 @@ static int write_page(struct mtd_info *mtd, struct nand_chip *chip,
  * by write_page above.
  */
 static int denali_write_page(struct mtd_info *mtd, struct nand_chip *chip,
-				const uint8_t *buf, int oob_required)
+				const uint8_t *buf, int oob_required, int page)
 {
 	/*
 	 * for regular page writes, we let HW handle all the ECC
@@ -1144,7 +1150,8 @@ static int denali_write_page(struct mtd_info *mtd, struct nand_chip *chip,
  * write_page() function above.
  */
 static int denali_write_page_raw(struct mtd_info *mtd, struct nand_chip *chip,
-					const uint8_t *buf, int oob_required)
+				 const uint8_t *buf, int oob_required,
+				 int page)
 {
 	/*
 	 * for raw page writes, we want to disable ECC and simply write
@@ -1347,7 +1354,7 @@ static void denali_cmdfunc(struct mtd_info *mtd, unsigned int cmd, int col,
 		 */
 		addr = MODE_11 | BANK(denali->flash_bank);
 		index_addr(denali, addr | 0, 0x90);
-		index_addr(denali, addr | 1, 0);
+		index_addr(denali, addr | 1, col);
 		for (i = 0; i < 8; i++) {
 			index_addr_read_data(denali, addr | 2, &id);
 			write_byte_to_buf(denali, id);
@@ -1518,7 +1525,6 @@ int denali_init(struct denali_nand_info *denali)
 	/* now that our ISR is registered, we can enable interrupts */
 	denali_set_intr_modes(denali, true);
 	denali->mtd.name = "denali-nand";
-	denali->mtd.owner = THIS_MODULE;
 	denali->mtd.priv = &denali->nand;
 
 	/* register the driver with the NAND core subsystem */

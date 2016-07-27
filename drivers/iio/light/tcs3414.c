@@ -185,7 +185,7 @@ static int tcs3414_write_raw(struct iio_dev *indio_dev,
 		if (val != 0)
 			return -EINVAL;
 		for (i = 0; i < ARRAY_SIZE(tcs3414_times); i++) {
-			if (val == tcs3414_times[i] * 1000) {
+			if (val2 == tcs3414_times[i] * 1000) {
 				data->timing &= ~TCS3414_INTEG_MASK;
 				data->timing |= i;
 				return i2c_smbus_write_byte_data(
@@ -259,10 +259,6 @@ static int tcs3414_buffer_predisable(struct iio_dev *indio_dev)
 	struct tcs3414_data *data = iio_priv(indio_dev);
 	int ret;
 
-	ret = iio_triggered_buffer_predisable(indio_dev);
-	if (ret < 0)
-		return ret;
-
 	data->control &= ~TCS3414_CONTROL_ADC_EN;
 	return i2c_smbus_write_byte_data(data->client, TCS3414_CONTROL,
 		data->control);
@@ -270,7 +266,6 @@ static int tcs3414_buffer_predisable(struct iio_dev *indio_dev)
 
 static const struct iio_buffer_setup_ops tcs3414_buffer_setup_ops = {
 	.preenable = tcs3414_buffer_preenable,
-	.postenable = &iio_triggered_buffer_postenable,
 	.predisable = tcs3414_buffer_predisable,
 };
 
@@ -392,7 +387,6 @@ static struct i2c_driver tcs3414_driver = {
 	.driver = {
 		.name	= TCS3414_DRV_NAME,
 		.pm	= &tcs3414_pm_ops,
-		.owner	= THIS_MODULE,
 	},
 	.probe		= tcs3414_probe,
 	.remove		= tcs3414_remove,

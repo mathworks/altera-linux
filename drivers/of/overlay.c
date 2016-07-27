@@ -56,6 +56,41 @@ struct of_overlay {
 static int of_overlay_apply_one(struct of_overlay *ov,
 		struct device_node *target, const struct device_node *overlay);
 
+static BLOCKING_NOTIFIER_HEAD(of_overlay_chain);
+
+int of_overlay_notifier_register(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_register(&of_overlay_chain, nb);
+}
+EXPORT_SYMBOL_GPL(of_overlay_notifier_register);
+
+int of_overlay_notifier_unregister(struct notifier_block *nb)
+{
+	return blocking_notifier_chain_unregister(&of_overlay_chain, nb);
+}
+EXPORT_SYMBOL_GPL(of_overlay_notifier_unregister);
+
+static int of_overlay_notify(struct of_overlay *ov,
+			     enum of_overlay_notify_action action)
+{
+	struct of_overlay_notify_data nd;
+	int i, ret;
+
+	for (i = 0; i < ov->count; i++) {
+		struct of_overlay_info *ovinfo = &ov->ovinfo_tab[i];
+
+		nd.target = ovinfo->target;
+		nd.overlay = ovinfo->overlay;
+
+		ret = blocking_notifier_call_chain(&of_overlay_chain,
+						   action, &nd);
+		if (ret)
+			return notifier_to_errno(ret);
+	}
+
+	return 0;
+}
+
 static int of_overlay_apply_single_property(struct of_overlay *ov,
 		struct device_node *target, struct property *prop)
 {
@@ -149,6 +184,7 @@ static int of_overlay_apply_one(struct of_overlay *ov,
 			pr_err("%s: Failed to apply single node @%s/%s\n",
 					__func__, target->full_name,
 					child->name);
+			of_node_put(child);
 			return ret;
 		}
 	}
@@ -333,7 +369,7 @@ static DEFINE_IDR(ov_idr);
  * of the overlay in a list. This list can be used to prevent
  * illegal overlay removals.
  *
- * Returns the id of the created overlay, or an negative error number
+ * Returns the id of the created overlay, or a negative error number
  */
 int of_overlay_create(struct device_node *tree)
 {
@@ -369,6 +405,13 @@ int of_overlay_create(struct device_node *tree)
 		goto err_free_idr;
 	}
 
+	err = of_overlay_notify(ov, OF_OVERLAY_PRE_APPLY);
+	if (err < 0) {
+		pr_err("%s: Pre-apply notifier failed (err=%d)\n",
+		       __func__, err);
+		goto err_free_idr;
+	}
+
 	/* apply the overlay */
 	err = of_overlay_apply(ov);
 	if (err) {
@@ -387,6 +430,8 @@ int of_overlay_create(struct device_node *tree)
 
 	/* add to the tail of the overlay list */
 	list_add_tail(&ov->node, &ov_list);
+
+	of_overlay_notify(ov, OF_OVERLAY_POST_APPLY);
 
 	mutex_unlock(&of_mutex);
 
@@ -417,8 +462,10 @@ static int overlay_subtree_check(struct device_node *tree,
 		return 1;
 
 	for_each_child_of_node(tree, child) {
-		if (overlay_subtree_check(child, dn))
+		if (overlay_subtree_check(child, dn)) {
+			of_node_put(child);
 			return 1;
+		}
 	}
 
 	return 0;
@@ -481,7 +528,7 @@ static int overlay_removal_is_ok(struct of_overlay *ov)
  *
  * Removes an overlay if it is permissible.
  *
- * Returns 0 on success, or an negative error number
+ * Returns 0 on success, or a negative error number
  */
 int of_overlay_destroy(int id)
 {
@@ -506,9 +553,10 @@ int of_overlay_destroy(int id)
 		goto out;
 	}
 
-
+	of_overlay_notify(ov, OF_OVERLAY_PRE_REMOVE);
 	list_del(&ov->node);
 	of_changeset_revert(&ov->cset);
+	of_overlay_notify(ov, OF_OVERLAY_POST_REMOVE);
 	of_free_overlay_info(ov);
 	idr_remove(&ov_idr, id);
 	of_changeset_destroy(&ov->cset);
@@ -528,7 +576,7 @@ EXPORT_SYMBOL_GPL(of_overlay_destroy);
  *
  * Removes all overlays from the system in the correct order.
  *
- * Returns 0 on success, or an negative error number
+ * Returns 0 on success, or a negative error number
  */
 int of_overlay_destroy_all(void)
 {

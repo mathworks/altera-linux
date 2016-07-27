@@ -1,5 +1,5 @@
 /*
- *  Copyright (C) 2012 Altera Corporation
+ *  Copyright (C) 2012-2015 Altera Corporation
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -14,6 +14,7 @@
  * You should have received a copy of the GNU General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
+#include <linux/perf/arm_pmu.h>
 #include <linux/irqchip.h>
 #include <linux/of_address.h>
 #include <linux/of_irq.h>
@@ -26,20 +27,17 @@
 #include <asm/mach/arch.h>
 #include <asm/mach/map.h>
 #include <asm/cacheflush.h>
-#include <asm/pmu.h>
-#include <asm/cacheflush.h>
 
 #include "core.h"
 #include "socfpga_cti.h"
 #include "l2_cache.h"
 #include "ocram.h"
+#include "nand.h"
 
-void __iomem *socfpga_scu_base_addr = ((void __iomem *)(SOCFPGA_SCU_VIRT_BASE));
 void __iomem *sys_manager_base_addr;
 void __iomem *rst_manager_base_addr;
-unsigned long socfpga_cpu1start_addr;
 void __iomem *sdr_ctl_base_addr;
-void __iomem *l3regs_base_addr;
+unsigned long socfpga_cpu1start_addr;
 void __iomem *clkmgr_base_addr;
 
 static int socfpga_is_a10(void);
@@ -58,13 +56,6 @@ static const struct of_dev_auxdata socfpga_auxdata_lookup[] __initconst = {
 	OF_DEV_AUXDATA("arm,cortex-a9-pmu", 0, "arm-pmu", &socfpga_pmu_platdata),
 #endif
 	{ /* sentinel */ }
-};
-
-static struct map_desc scu_io_desc __initdata = {
-	.virtual	= SOCFPGA_SCU_VIRT_BASE,
-	.pfn		= 0, /* run-time */
-	.length		= SZ_8K,
-	.type		= MT_DEVICE,
 };
 
 static void __init socfpga_soc_device_init(void)
@@ -118,17 +109,6 @@ static void __init socfpga_soc_device_init(void)
 	return;
 }
 
-static void __init socfpga_scu_map_io(void)
-{
-	unsigned long base;
-
-	/* Get SCU base */
-	asm("mrc p15, 4, %0, c15, c0, 0" : "=r" (base));
-
-	scu_io_desc.pfn = __phys_to_pfn(base);
-	iotable_init(&scu_io_desc, 1);
-}
-
 static void __init enable_periphs(void)
 {
 	if (socfpga_is_a10()) {
@@ -143,12 +123,6 @@ static void __init enable_periphs(void)
 static int socfpga_is_a10(void)
 {
 	return of_machine_is_compatible("altr,socfpga-arria10");
-}
-
-static void __init socfpga_map_io(void)
-{
-	socfpga_scu_map_io();
-	early_printk("Early printk initialized\n");
 }
 
 void __init socfpga_sysmgr_init(void)
@@ -169,29 +143,13 @@ void __init socfpga_sysmgr_init(void)
 
 	np = of_find_compatible_node(NULL, NULL, "altr,rst-mgr");
 	rst_manager_base_addr = of_iomap(np, 0);
-	WARN_ON(!rst_manager_base_addr);
 
 	np = of_find_compatible_node(NULL, NULL, "altr,clk-mgr");
 	clkmgr_base_addr = of_iomap(np, 0);
 	WARN_ON(!clkmgr_base_addr);
 
 	np = of_find_compatible_node(NULL, NULL, "altr,sdr-ctl");
-	if (!np) {
-		pr_err("SOCFPGA: Unable to find sdr-ctl\n");
-		return;
-	}
-
 	sdr_ctl_base_addr = of_iomap(np, 0);
-	WARN_ON(!sdr_ctl_base_addr);
-
-	np = of_find_compatible_node(NULL, NULL, "altr,l3regs");
-	if (!np) {
-		pr_err("SOCFPGA: Unable to find l3regs\n");
-		return;
-	}
-
-	l3regs_base_addr = of_iomap(np, 0);
-	WARN_ON(!l3regs_base_addr);
 }
 
 static void __init socfpga_init_irq(void)
@@ -199,6 +157,7 @@ static void __init socfpga_init_irq(void)
 	irqchip_init();
 	socfpga_sysmgr_init();
 	socfpga_init_l2_ecc();
+	socfpga_init_arria10_l2_ecc();
 }
 
 static void socfpga_cyclone5_restart(enum reboot_mode mode, const char *cmd)
@@ -206,23 +165,28 @@ static void socfpga_cyclone5_restart(enum reboot_mode mode, const char *cmd)
 	u32 temp;
 
 	/* Turn on all periph PLL clocks */
-	if (!of_machine_is_compatible("altr,socfpga-arria10")) {
-		writel(0xffff, clkmgr_base_addr + SOCFPGA_ENABLE_PLL_REG);
-		temp = readl(rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
-	} else {
-		temp = readl(rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
-	}
+	writel(0xffff, clkmgr_base_addr + SOCFPGA_ENABLE_PLL_REG);
+
+	temp = readl(rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
 
 	if (mode == REBOOT_HARD)
 		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
 	else
 		temp |= RSTMGR_CTRL_SWWARMRSTREQ;
+	writel(temp, rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
+}
 
-	if (of_machine_is_compatible("altr,socfpga-arria10")) {
-		writel(temp, rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
-	} else {
-		writel(temp, rst_manager_base_addr + SOCFPGA_RSTMGR_CTRL);
-	}
+static void socfpga_arria10_restart(enum reboot_mode mode, const char *cmd)
+{
+	u32 temp;
+
+	temp = readl(rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
+
+	if (mode == REBOOT_HARD)
+		temp |= RSTMGR_CTRL_SWCOLDRSTREQ;
+	else
+		temp |= RSTMGR_CTRL_SWWARMRSTREQ;
+	writel(temp, rst_manager_base_addr + SOCFPGA_A10_RSTMGR_CTRL);
 }
 
 static void __init socfpga_cyclone5_init(void)
@@ -232,6 +196,7 @@ static void __init socfpga_cyclone5_init(void)
 	enable_periphs();
 	socfpga_soc_device_init();
 	socfpga_init_ocram_ecc();
+	socfpga_init_nand_ecc();
 }
 
 static const char *altera_dt_match[] = {
@@ -244,10 +209,21 @@ DT_MACHINE_START(SOCFPGA, "Altera SOCFPGA")
 			L310_AUX_CTRL_INSTR_PREFETCH |
 			L2C_AUX_CTRL_SHARED_OVERRIDE,
 	.l2c_aux_mask	= ~0,
-	.smp		= smp_ops(socfpga_smp_ops),
-	.map_io		= socfpga_map_io,
 	.init_irq	= socfpga_init_irq,
 	.init_machine	= socfpga_cyclone5_init,
 	.restart	= socfpga_cyclone5_restart,
 	.dt_compat	= altera_dt_match,
+MACHINE_END
+
+static const char *altera_a10_dt_match[] = {
+	"altr,socfpga-arria10",
+	NULL
+};
+
+DT_MACHINE_START(SOCFPGA_A10, "Altera SOCFPGA Arria10")
+	.l2c_aux_val	= 0,
+	.l2c_aux_mask	= ~0,
+	.init_irq	= socfpga_init_irq,
+	.restart	= socfpga_arria10_restart,
+	.dt_compat	= altera_a10_dt_match,
 MACHINE_END
