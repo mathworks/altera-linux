@@ -15,20 +15,49 @@
 
 #ifdef CONFIG_IIO_BUFFER
 
+#define IIO_BLOCK_ALLOC_IOCTL	_IOWR('i', 0xa0, struct iio_buffer_block_alloc_req)
+#define IIO_BLOCK_FREE_IOCTL	_IO('i', 0xa1)
+#define IIO_BLOCK_QUERY_IOCTL	_IOWR('i', 0xa2, struct iio_buffer_block)
+#define IIO_BLOCK_ENQUEUE_IOCTL	_IOWR('i', 0xa3, struct iio_buffer_block)
+#define IIO_BLOCK_DEQUEUE_IOCTL	_IOWR('i', 0xa4, struct iio_buffer_block)
+
+struct iio_buffer_block_alloc_req {
+	__u32 type;
+	__u32 size;
+	__u32 count;
+	__u32 id;
+};
+
+#define IIO_BUFFER_BLOCK_FLAG_TIMESTAMP_VALID (1 << 0)
+#define IIO_BUFFER_BLOCK_FLAG_CYCLIC (1 << 1)
+
+struct iio_buffer_block {
+	__u32 id;
+	__u32 size;
+	__u32 bytes_used;
+	__u32 type;
+	__u32 flags;
+	union {
+		__u32 offset;
+	} data;
+	__u64 timestamp;
+};
+
 struct iio_buffer;
 
 /**
  * struct iio_buffer_access_funcs - access functions for buffers.
  * @store_to:		actually store stuff to the buffer
- * @read_first_n:	try to get a specified number of bytes (must exist)
- * @data_available:	indicates whether data for reading from the buffer is
- *			available.
+ * @read:		try to get a specified number of elements (must exist)
+ * @data_available:	indicates how much data is available for reading from
+ *			the buffer.
  * @request_update:	if a parameter change has been marked, update underlying
  *			storage.
  * @set_bytes_per_datum:set number of bytes per datum
  * @set_length:		set number of datums in buffer
  * @release:		called when the last reference to the buffer is dropped,
  *			should free all resources allocated by the buffer.
+ * @modes:		Supported operating modes by this buffer type
  *
  * The purpose of this structure is to make the buffer element
  * modular as event for a given driver, different usecases may require
@@ -40,10 +69,12 @@ struct iio_buffer;
  **/
 struct iio_buffer_access_funcs {
 	int (*store_to)(struct iio_buffer *buffer, const void *data);
-	int (*read_first_n)(struct iio_buffer *buffer,
-			    size_t n,
-			    char __user *buf);
-	bool (*data_available)(struct iio_buffer *buffer);
+	int (*read)(struct iio_buffer *buffer, size_t n, char __user *buf);
+	size_t (*data_available)(struct iio_buffer *buffer);
+	int (*remove_from)(struct iio_buffer *buffer, void *data);
+	int (*write)(struct iio_buffer *buffer, size_t n,
+		const char __user *buf);
+	bool (*space_available)(struct iio_buffer *buffer);
 
 	int (*request_update)(struct iio_buffer *buffer);
 
@@ -51,6 +82,23 @@ struct iio_buffer_access_funcs {
 	int (*set_length)(struct iio_buffer *buffer, int length);
 
 	void (*release)(struct iio_buffer *buffer);
+
+	int (*enable)(struct iio_buffer *buffer, struct iio_dev *indio_dev);
+	int (*disable)(struct iio_buffer *buffer, struct iio_dev *indio_dev);
+
+	int (*alloc_blocks)(struct iio_buffer *buffer,
+		struct iio_buffer_block_alloc_req *req);
+	int (*free_blocks)(struct iio_buffer *buffer);
+	int (*enqueue_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*dequeue_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*query_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*mmap)(struct iio_buffer *buffer,
+		struct vm_area_struct *vma);
+
+	unsigned int modes;
 };
 
 /**
@@ -72,6 +120,7 @@ struct iio_buffer_access_funcs {
  * @demux_bounce:	[INTERN] buffer for doing gather from incoming scan.
  * @buffer_list:	[INTERN] entry in the devices list of current buffers.
  * @ref:		[INTERN] reference count of the buffer.
+ * @watermark:		[INTERN] number of datums to wait for poll/read.
  */
 struct iio_buffer {
 	int					length;
@@ -90,7 +139,19 @@ struct iio_buffer {
 	void					*demux_bounce;
 	struct list_head			buffer_list;
 	struct kref				ref;
+	unsigned int				watermark;
 };
+
+static inline int iio_buffer_write(struct iio_buffer *buffer, size_t n,
+	const char __user *buf)
+{
+	return buffer->access->write(buffer, n, buf);
+}
+
+static inline int iio_buffer_remove_sample(struct iio_buffer *buffer, u8 *data)
+{
+	return buffer->access->remove_from(buffer, data);
+}
 
 /**
  * iio_update_buffers() - add or remove buffer from active list

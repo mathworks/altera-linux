@@ -1,45 +1,47 @@
-Altera FPGA/HPS  Bridge Driver
-
-    This driver manages a bridge between a FPGA and a host processor system
-    (HPS).  User space can enable/disable the bridge by writing a "1" or a "0",
-    respectively, to its enable file under bridge's entry in
-    /sys/class/fpga-bridge.  Typically, one disables the bridges before
-    reprogramming the FPGA.  Once the FPGA is reprogrammed, the bridges
-    are reenabled.
+Altera FPGA/HPS Bridge Driver
 
 Required properties:
-
-  - compatible : "altr,socfpga-hps2fpga-bridge"
-		 "altr,socfpga-lwhps2fpga-bridge"
-		 "altr,socfpga-fpga2hps-bridge"
-
-  - clocks : clocks used by this module
+- regs		: base address and size for AXI bridge module
+- compatible	: Should contain one of:
+		  "altr,socfpga-lwhps2fpga-bridge",
+		  "altr,socfpga-hps2fpga-bridge", or
+		  "altr,socfpga-fpga2hps-bridge"
+- reset-names	: Should contain one of:
+		  "lwhps2fpga",
+		  "hps2fpga", or
+		  "fpga2hps"
+- resets	: Phandle and reset specifier for the reset listed in
+		  reset-names
+- clocks	: Clocks used by this module.
 
 Optional properties:
-  - label : name that you want this bridge to show up as under
-	/sys/class/fpga-bridge.  Default is br<device#> if this is not specified
-
-  - init-val : 	0 if driver should disable bridge at startup
-		1 if driver should enable bridge at startup
-		driver leaves bridge in current state if property not specified
+- bridge-enable	: 0 if driver should disable bridge at startup.
+		  1 if driver should enable bridge at startup.
+		  Default is to leave bridge in its current state.
 
 Example:
-	hps_fpgabridge0: fpgabridge@0 {
-		compatible = "altr,socfpga-hps2fpga-bridge";
-		label = "hps2fpga";
-		clocks = <&l4_main_clk>;
-		init-val = <1>;
-	};
-
-	hps_fpgabridge1: fpgabridge@1 {
+	hps_fpgabridge0: fpgabridge@ff400000 {
 		compatible = "altr,socfpga-lwhps2fpga-bridge";
-		label = "lwhps2fpga";
+		reg = <0xff400000 0x100000>;
+		resets = <&rst LWHPS2FPGA_RESET>;
+		reset-names = "lwhps2fpga";
 		clocks = <&l4_main_clk>;
-		init-val = <0>;
+		bridge-enable = <0>;
 	};
 
-	hps_fpgabridge2: fpgabridge@2 {
+	hps_fpgabridge1: fpgabridge@ff500000 {
+		compatible = "altr,socfpga-hps2fpga-bridge";
+		reg = <0xff500000 0x10000>;
+		resets = <&rst HPS2FPGA_RESET>;
+		reset-names = "hps2fpga";
+		clocks = <&l4_main_clk>;
+		bridge-enable = <1>;
+	};
+
+	hps_fpgabridge2: fpgabridge@ff600000 {
 		compatible = "altr,socfpga-fpga2hps-bridge";
-		label = "fpga2hps";
+		reg = <0xff600000 0x100000>;
+		resets = <&rst FPGA2HPS_RESET>;
+		reset-names = "fpga2hps";
 		clocks = <&l4_main_clk>;
 	};

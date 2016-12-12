@@ -519,6 +519,47 @@ static int __init ulite_console_init(void)
 
 console_initcall(ulite_console_init);
 
+static void early_uartlite_putc(struct uart_port *port, int c)
+{
+	/*
+	 * Limit how many times we'll spin waiting for TX FIFO status.
+	 * This will prevent lockups if the base address is incorrectly
+	 * set, or any other issue on the UARTLITE.
+	 * This limit is pretty arbitrary, unless we are at about 10 baud
+	 * we'll never timeout on a working UART.
+	 */
+
+	unsigned retries = 1000000;
+	/* read status bit - 0x8 offset */
+	while (--retries && (readl(port->membase + 8) & (1 << 3)))
+		;
+
+	/* Only attempt the iowrite if we didn't timeout */
+	/* write to TX_FIFO - 0x4 offset */
+	if (retries)
+		writel(c & 0xff, port->membase + 4);
+}
+
+static void early_uartlite_write(struct console *console,
+				 const char *s, unsigned n)
+{
+	struct earlycon_device *device = console->data;
+	uart_console_write(&device->port, s, n, early_uartlite_putc);
+}
+
+static int __init early_uartlite_setup(struct earlycon_device *device,
+				       const char *options)
+{
+	if (!device->port.membase)
+		return -ENODEV;
+
+	device->con->write = early_uartlite_write;
+	return 0;
+}
+EARLYCON_DECLARE(uartlite, early_uartlite_setup);
+OF_EARLYCON_DECLARE(uartlite_b, "xlnx,opb-uartlite-1.00.b", early_uartlite_setup);
+OF_EARLYCON_DECLARE(uartlite_a, "xlnx,xps-uartlite-1.00.a", early_uartlite_setup);
+
 #endif /* CONFIG_SERIAL_UARTLITE_CONSOLE */
 
 static struct uart_driver ulite_uart_driver = {
@@ -622,7 +663,7 @@ static int ulite_release(struct device *dev)
 
 #if defined(CONFIG_OF)
 /* Match table for of_platform binding */
-static struct of_device_id ulite_of_match[] = {
+static const struct of_device_id ulite_of_match[] = {
 	{ .compatible = "xlnx,opb-uartlite-1.00.b", },
 	{ .compatible = "xlnx,xps-uartlite-1.00.a", },
 	{}
@@ -632,7 +673,8 @@ MODULE_DEVICE_TABLE(of, ulite_of_match);
 
 static int ulite_probe(struct platform_device *pdev)
 {
-	struct resource *res, *res2;
+	struct resource *res;
+	int irq;
 	int id = pdev->id;
 #ifdef CONFIG_OF
 	const __be32 *prop;
@@ -646,11 +688,11 @@ static int ulite_probe(struct platform_device *pdev)
 	if (!res)
 		return -ENODEV;
 
-	res2 = platform_get_resource(pdev, IORESOURCE_IRQ, 0);
-	if (!res2)
-		return -ENODEV;
+	irq = platform_get_irq(pdev, 0);
+	if (irq <= 0)
+		return -ENXIO;
 
-	return ulite_assign(&pdev->dev, id, res->start, res2->start);
+	return ulite_assign(&pdev->dev, id, res->start, irq);
 }
 
 static int ulite_remove(struct platform_device *pdev)

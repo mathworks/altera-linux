@@ -12,7 +12,7 @@
 #
 
 ifneq ($(MACHINE),)
-include $(srctree)/$(MACHINE)/Makefile.boot
+include $(MACHINE)/Makefile.boot
 endif
 
 # Note: the following conditions must always be true:
@@ -26,6 +26,10 @@ INITRD_PHYS := $(initrd_phys-y)
 export ZRELADDR INITRD_PHYS PARAMS_PHYS
 
 targets := Image zImage xipImage bootpImage uImage
+
+ifeq ($(CONFIG_OF_OVERLAY),y)
+DTC_FLAGS += -@
+endif
 
 ifeq ($(CONFIG_XIP_KERNEL),y)
 

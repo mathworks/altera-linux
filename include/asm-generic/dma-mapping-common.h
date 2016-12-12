@@ -6,6 +6,7 @@
 #include <linux/scatterlist.h>
 #include <linux/dma-debug.h>
 #include <linux/dma-attrs.h>
+#include <asm-generic/dma-coherent.h>
 
 static inline dma_addr_t dma_map_single_attrs(struct device *dev, void *ptr,
 					      size_t size,
@@ -16,6 +17,7 @@ static inline dma_addr_t dma_map_single_attrs(struct device *dev, void *ptr,
 	dma_addr_t addr;
 
 	kmemcheck_mark_initialized(ptr, size);
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	addr = ops->map_page(dev, virt_to_page(ptr),
 			     (unsigned long)ptr & ~PAGE_MASK, size,
@@ -33,12 +35,17 @@ static inline void dma_unmap_single_attrs(struct device *dev, dma_addr_t addr,
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	if (ops->unmap_page)
 		ops->unmap_page(dev, addr, size, dir, attrs);
 	debug_dma_unmap_page(dev, addr, size, dir, true);
 }
 
+/*
+ * dma_maps_sg_attrs returns 0 on error and > 0 on success.
+ * It should never return a value < 0.
+ */
 static inline int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 				   int nents, enum dma_data_direction dir,
 				   struct dma_attrs *attrs)
@@ -49,8 +56,10 @@ static inline int dma_map_sg_attrs(struct device *dev, struct scatterlist *sg,
 
 	for_each_sg(sg, s, nents, i)
 		kmemcheck_mark_initialized(sg_virt(s), s->length);
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	ents = ops->map_sg(dev, sg, nents, dir, attrs);
+	BUG_ON(ents < 0);
 	debug_dma_map_sg(dev, sg, nents, ents, dir);
 
 	return ents;
@@ -62,6 +71,7 @@ static inline void dma_unmap_sg_attrs(struct device *dev, struct scatterlist *sg
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	debug_dma_unmap_sg(dev, sg, nents, dir);
 	if (ops->unmap_sg)
@@ -76,6 +86,7 @@ static inline dma_addr_t dma_map_page(struct device *dev, struct page *page,
 	dma_addr_t addr;
 
 	kmemcheck_mark_initialized(page_address(page) + offset, size);
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	addr = ops->map_page(dev, page, offset, size, dir, NULL);
 	debug_dma_map_page(dev, page, offset, size, dir, addr, false);
@@ -88,6 +99,7 @@ static inline void dma_unmap_page(struct device *dev, dma_addr_t addr,
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	if (ops->unmap_page)
 		ops->unmap_page(dev, addr, size, dir, NULL);
@@ -152,6 +164,7 @@ dma_sync_sg_for_cpu(struct device *dev, struct scatterlist *sg,
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	if (ops->sync_sg_for_cpu)
 		ops->sync_sg_for_cpu(dev, sg, nelems, dir);
@@ -164,6 +177,7 @@ dma_sync_sg_for_device(struct device *dev, struct scatterlist *sg,
 {
 	struct dma_map_ops *ops = get_dma_ops(dev);
 
+	BUG_ON(!ops);
 	BUG_ON(!valid_dma_direction(dir));
 	if (ops->sync_sg_for_device)
 		ops->sync_sg_for_device(dev, sg, nelems, dir);
@@ -231,5 +245,122 @@ dma_get_sgtable_attrs(struct device *dev, struct sg_table *sgt, void *cpu_addr,
 }
 
 #define dma_get_sgtable(d, t, v, h, s) dma_get_sgtable_attrs(d, t, v, h, s, NULL)
+
+#ifndef arch_dma_alloc_attrs
+#define arch_dma_alloc_attrs(dev, flag)	(true)
+#endif
+
+static inline void *dma_alloc_attrs(struct device *dev, size_t size,
+				       dma_addr_t *dma_handle, gfp_t flag,
+				       struct dma_attrs *attrs)
+{
+	struct dma_map_ops *ops = get_dma_ops(dev);
+	void *cpu_addr;
+
+	BUG_ON(!ops);
+
+	if (dma_alloc_from_coherent(dev, size, dma_handle, &cpu_addr))
+		return cpu_addr;
+
+	if (!arch_dma_alloc_attrs(&dev, &flag))
+		return NULL;
+	if (!ops->alloc)
+		return NULL;
+
+	cpu_addr = ops->alloc(dev, size, dma_handle, flag, attrs);
+	debug_dma_alloc_coherent(dev, size, *dma_handle, cpu_addr);
+	return cpu_addr;
+}
+
+static inline void dma_free_attrs(struct device *dev, size_t size,
+				     void *cpu_addr, dma_addr_t dma_handle,
+				     struct dma_attrs *attrs)
+{
+	struct dma_map_ops *ops = get_dma_ops(dev);
+
+	BUG_ON(!ops);
+	WARN_ON(irqs_disabled());
+
+	if (dma_release_from_coherent(dev, get_order(size), cpu_addr))
+		return;
+
+	if (!ops->free)
+		return;
+
+	debug_dma_free_coherent(dev, size, cpu_addr, dma_handle);
+	ops->free(dev, size, cpu_addr, dma_handle, attrs);
+}
+
+static inline void *dma_alloc_coherent(struct device *dev, size_t size,
+		dma_addr_t *dma_handle, gfp_t flag)
+{
+	return dma_alloc_attrs(dev, size, dma_handle, flag, NULL);
+}
+
+static inline void dma_free_coherent(struct device *dev, size_t size,
+		void *cpu_addr, dma_addr_t dma_handle)
+{
+	return dma_free_attrs(dev, size, cpu_addr, dma_handle, NULL);
+}
+
+static inline void *dma_alloc_noncoherent(struct device *dev, size_t size,
+		dma_addr_t *dma_handle, gfp_t gfp)
+{
+	DEFINE_DMA_ATTRS(attrs);
+
+	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
+	return dma_alloc_attrs(dev, size, dma_handle, gfp, &attrs);
+}
+
+static inline void dma_free_noncoherent(struct device *dev, size_t size,
+		void *cpu_addr, dma_addr_t dma_handle)
+{
+	DEFINE_DMA_ATTRS(attrs);
+
+	dma_set_attr(DMA_ATTR_NON_CONSISTENT, &attrs);
+	dma_free_attrs(dev, size, cpu_addr, dma_handle, &attrs);
+}
+
+static inline int dma_mapping_error(struct device *dev, dma_addr_t dma_addr)
+{
+	debug_dma_mapping_error(dev, dma_addr);
+
+	if (get_dma_ops(dev)->mapping_error)
+		return get_dma_ops(dev)->mapping_error(dev, dma_addr);
+
+#ifdef DMA_ERROR_CODE
+	return dma_addr == DMA_ERROR_CODE;
+#else
+	return 0;
+#endif
+}
+
+#ifndef HAVE_ARCH_DMA_SUPPORTED
+static inline int dma_supported(struct device *dev, u64 mask)
+{
+	struct dma_map_ops *ops = get_dma_ops(dev);
+
+	if (!ops)
+		return 0;
+	if (!ops->dma_supported)
+		return 1;
+	return ops->dma_supported(dev, mask);
+}
+#endif
+
+#ifndef HAVE_ARCH_DMA_SET_MASK
+static inline int dma_set_mask(struct device *dev, u64 mask)
+{
+	struct dma_map_ops *ops = get_dma_ops(dev);
+
+	if (ops->set_dma_mask)
+		return ops->set_dma_mask(dev, mask);
+
+	if (!dev->dma_mask || !dma_supported(dev, mask))
+		return -EIO;
+	*dev->dma_mask = mask;
+	return 0;
+}
+#endif
 
 #endif

@@ -19,6 +19,7 @@
 #include <linux/of.h>
 #include <linux/of_gpio.h>
 #include <linux/of_platform.h>
+#include <linux/property.h>
 
 #include "spi-dw.h"
 
@@ -51,11 +52,10 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 		return -EINVAL;
 	}
 
-	dws->regs = ioremap_nocache(mem->start, resource_size(mem));
-	dws->paddr = mem->start;
-	if (!dws->regs) {
-		dev_err(&pdev->dev, "SPI region already mapped\n");
-		return -ENOMEM;
+	dws->regs = devm_ioremap_resource(&pdev->dev, mem);
+	if (IS_ERR(dws->regs)) {
+		dev_err(&pdev->dev, "SPI region map failed\n");
+		return PTR_ERR(dws->regs);
 	}
 
 	dws->irq = platform_get_irq(pdev, 0);
@@ -73,17 +73,13 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 
 	dws->bus_num = pdev->id;
 
-	if (of_property_read_bool(pdev->dev.of_node, "32bit_access")) {
-		dws->dwread = dw_readl;
-		dws->dwwrite = dw_writel;
-	}
-
 	dws->max_freq = clk_get_rate(dwsmmio->clk);
+
+	device_property_read_u32(&pdev->dev, "reg-io-width", &dws->reg_io_width);
 
 	num_cs = 4;
 
-	if (pdev->dev.of_node)
-		of_property_read_u32(pdev->dev.of_node, "num-cs", &num_cs);
+	device_property_read_u32(&pdev->dev, "num-cs", &num_cs);
 
 	dws->num_cs = num_cs;
 
@@ -107,11 +103,6 @@ static int dw_spi_mmio_probe(struct platform_device *pdev)
 			}
 		}
 	}
-#ifdef CONFIG_SPI_DW_PL330_DMA
-	ret = dw_spi_pl330_init(dws);
-	if (ret)
-		goto out;
-#endif
 
 	ret = dw_spi_add_host(&pdev->dev, dws);
 	if (ret)

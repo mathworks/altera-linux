@@ -14,9 +14,7 @@ Required properties:
 - bus-num : Number of the SPI bus to which the controller is connected.
 
 Optional properties:
-- dmas : DMA request lines.  Should be <&pdma 0 &pdma 1>.  If present,
-  then DMA is used for reads and writes
-- dma-names : Names of DMA request lines. Should be "tx", "rx".
+No optional properties
 
 Example:
 
@@ -32,6 +30,4 @@ Example:
 		num-chipselect = <4>;
 		fifo-depth = <128>;
 		bus-num = <2>;
-		dmas = <&pdma 24 &pdma 25>;
-		dma-names = "tx", "rx";
 	}

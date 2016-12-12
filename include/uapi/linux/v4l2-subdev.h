@@ -69,12 +69,14 @@ struct v4l2_subdev_crop {
  * @pad: pad number, as reported by the media API
  * @index: format index during enumeration
  * @code: format code (MEDIA_BUS_FMT_ definitions)
+ * @which: format type (from enum v4l2_subdev_format_whence)
  */
 struct v4l2_subdev_mbus_code_enum {
 	__u32 pad;
 	__u32 index;
 	__u32 code;
-	__u32 reserved[9];
+	__u32 which;
+	__u32 reserved[8];
 };
 
 /**
@@ -82,6 +84,7 @@ struct v4l2_subdev_mbus_code_enum {
  * @pad: pad number, as reported by the media API
  * @index: format index during enumeration
  * @code: format code (MEDIA_BUS_FMT_ definitions)
+ * @which: format type (from enum v4l2_subdev_format_whence)
  */
 struct v4l2_subdev_frame_size_enum {
 	__u32 index;
@@ -91,7 +94,8 @@ struct v4l2_subdev_frame_size_enum {
 	__u32 max_width;
 	__u32 min_height;
 	__u32 max_height;
-	__u32 reserved[9];
+	__u32 which;
+	__u32 reserved[8];
 };
 
 /**
@@ -113,6 +117,7 @@ struct v4l2_subdev_frame_interval {
  * @width: frame width in pixels
  * @height: frame height in pixels
  * @interval: frame interval in seconds
+ * @which: format type (from enum v4l2_subdev_format_whence)
  */
 struct v4l2_subdev_frame_interval_enum {
 	__u32 index;
@@ -121,7 +126,8 @@ struct v4l2_subdev_frame_interval_enum {
 	__u32 width;
 	__u32 height;
 	struct v4l2_fract interval;
-	__u32 reserved[9];
+	__u32 which;
+	__u32 reserved[8];
 };
 
 /**
@@ -148,6 +154,27 @@ struct v4l2_subdev_selection {
 	__u32 reserved[8];
 };
 
+
+/**
+ * struct v4l2_subdev_route - A signal route inside a subdev
+ * @sink: the sink pad
+ * @source: the source pad
+ */
+struct v4l2_subdev_route {
+	__u32 sink;
+	__u32 source;
+};
+
+/**
+ * struct v4l2_subdev_routing - Routing information
+ * @num_routes: the total number of routes in the routes array
+ * @routes: the routes array
+ */
+struct v4l2_subdev_routing {
+	__u32 num_routes;
+	struct v4l2_subdev_route *routes;
+};
+
 /* Backwards compatibility define --- to be removed */
 #define v4l2_subdev_edid v4l2_edid
 
@@ -170,5 +197,7 @@ struct v4l2_subdev_selection {
 #define VIDIOC_SUBDEV_ENUM_DV_TIMINGS		_IOWR('V', 98, struct v4l2_enum_dv_timings)
 #define VIDIOC_SUBDEV_QUERY_DV_TIMINGS		_IOR('V', 99, struct v4l2_dv_timings)
 #define VIDIOC_SUBDEV_DV_TIMINGS_CAP		_IOWR('V', 100, struct v4l2_dv_timings_cap)
+#define VIDIOC_SUBDEV_G_ROUTING			_IOWR('V', 38, struct v4l2_subdev_routing)
+#define VIDIOC_SUBDEV_S_ROUTING			_IOWR('V', 39, struct v4l2_subdev_routing)
 
 #endif

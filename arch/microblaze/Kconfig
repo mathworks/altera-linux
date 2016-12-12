@@ -70,6 +70,10 @@ config LOCKDEP_SUPPORT
 config HAVE_LATENCYTOP_SUPPORT
 	def_bool y
 
+config FORCE_MAX_ZONEORDER
+	int
+	default "14"
+
 source "init/Kconfig"
 
 source "kernel/Kconfig.freezer"
@@ -270,6 +274,9 @@ config PCI
 
 config PCI_DOMAINS
 	def_bool PCI
+
+config PCI_DOMAINS_GENERIC
+	def_bool PCI_DOMAINS
 
 config PCI_SYSCALL
 	def_bool PCI

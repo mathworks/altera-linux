@@ -469,7 +469,8 @@ static int ad5446_spi_probe(struct spi_device *spi)
 {
 	const struct spi_device_id *id = spi_get_device_id(spi);
 
-	return ad5446_probe(&spi->dev, id->name,
+	return ad5446_probe(&spi->dev, spi->dev.of_node ?
+		spi->dev.of_node->name : id->name,
 		&ad5446_spi_chip_info[id->driver_data]);
 }
 
@@ -481,7 +482,6 @@ static int ad5446_spi_remove(struct spi_device *spi)
 static struct spi_driver ad5446_spi_driver = {
 	.driver = {
 		.name	= "ad5446",
-		.owner	= THIS_MODULE,
 	},
 	.probe		= ad5446_spi_probe,
 	.remove		= ad5446_spi_remove,
@@ -569,7 +569,6 @@ MODULE_DEVICE_TABLE(i2c, ad5446_i2c_ids);
 static struct i2c_driver ad5446_i2c_driver = {
 	.driver = {
 		   .name = "ad5446",
-		   .owner = THIS_MODULE,
 	},
 	.probe = ad5446_i2c_probe,
 	.remove = ad5446_i2c_remove,

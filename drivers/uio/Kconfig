@@ -126,8 +126,8 @@ config UIO_FSL_ELBC_GPCM_NETX5152
 
 config UIO_PRUSS
 	tristate "Texas Instruments PRUSS driver"
-	depends on ARCH_DAVINCI_DA850
 	select GENERIC_ALLOCATOR
+	depends on HAS_IOMEM && HAS_DMA
 	help
 	  PRUSS driver for OMAPL138/DA850/AM18XX devices
 	  PRUSS driver requires user space components, examples and user space
@@ -154,5 +154,16 @@ config UIO_MF624
 	    git clone git://rtime.felk.cvut.cz/mf6xx.git
 
 	  If you compile this as a module, it will be called uio_mf624.
+
+config UIO_XILINX_APM
+	tristate "Xilinx AXI Performance Monitor driver"
+	depends on MICROBLAZE || ARCH_ZYNQ || ARCH_ZYNQMP
+	help
+	  This driver is developed for AXI Performance Monitor IP, designed to
+	  monitor AXI4 traffic for performance analysis of AXI bus in the
+	  system. Driver maps HW registers and parameters to userspace.
+
+	  To compile this driver as a module, choose M here; the module
+	  will be called uio_xilinx_apm.
 
 endif

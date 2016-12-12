@@ -16,6 +16,16 @@ config AD5064
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad5064.
 
+config AD5270
+	tristate "Analog Devices AD5270/1/2/4 Digital Potentiometers"
+	depends on (I2C || SPI)
+	help
+	  If you say yes here, you get support for the Analog Devices
+	  AD5270, AD5271, AD5272, AD5274 digital potentiometer chips.
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called ad5270.
+
 config AD5360
 	tristate "Analog Devices AD5360/61/62/63/70/71/73 DAC driver"
 	depends on SPI
@@ -71,6 +81,28 @@ config AD5449
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called ad5449.
+
+config AD5592R
+	tristate "Analog Devices AD5592R ADC/DAC driver"
+	depends on SPI_MASTER
+	select GPIOLIB
+	help
+	  Say yes here to build support for Analog Devices AD5592R
+	  Digital to Analog / Analog to Digital Converter.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ad5592r.
+
+config AD5593R
+	tristate "Analog Devices AD5593R ADC/DAC driver"
+	depends on I2C
+	select GPIOLIB
+	help
+	  Say yes here to build support for Analog Devices AD5593R
+	  Digital to Analog / Analog to Digital Converter.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called ad5593r.
 
 config AD5504
 	tristate "Analog Devices AD5504/AD5501 DAC SPI driver"
@@ -133,8 +165,11 @@ config AD5791
 	  module will be called ad5791.
 
 config AD7303
-	tristate "Analog Devices AD7303 DAC driver"
+	tristate "Analog Devices Analog Devices AD7303 DAC driver"
 	depends on SPI
+	select IIO_BUFFER
+	select IIO_TRIGGER
+	select IIO_TRIGGERED_BUFFER
 	help
 	  Say yes here to build support for Analog Devices AD7303 Digital to Analog
 	  Converters (DAC).
@@ -142,12 +177,27 @@ config AD7303
 	  To compile this driver as module choose M here: the module will be called
 	  ad7303.
 
-config MAX517
-	tristate "Maxim MAX517/518/519 DAC driver"
+config M62332
+	tristate "Mitsubishi M62332 DAC driver"
 	depends on I2C
 	help
-	  If you say yes here you get support for the Maxim chips MAX517,
-	  MAX518 and MAX519 (I2C 8-Bit DACs with rail-to-rail outputs).
+	  If you say yes here you get support for the Mitsubishi M62332
+	  (I2C 8-Bit DACs with rail-to-rail outputs).
+
+	  This driver can also be built as a module.  If so, the module
+	  will be called m62332.
+
+config MAX517
+	tristate "Maxim MAX517/518/519/520/521 DAC driver"
+	depends on I2C
+	help
+	  If you say yes here you get support for the following Maxim chips
+	  (I2C 8-Bit DACs with rail-to-rail outputs):
+	  MAX517 - Single channel, single reference
+	  MAX518 - Dual channel, ref=Vdd
+	  MAX519 - Dual channel, dual reference
+	  MAX520 - Quad channel, quad reference
+	  MAX521 - Octal channel, independent ref for ch0-3, shared ref for ch4-7
 
 	  This driver can also be built as a module.  If so, the module
 	  will be called max517.
