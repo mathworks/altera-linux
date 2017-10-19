@@ -142,7 +142,7 @@
 #define ECC_POISON0_OFST	0xB8
 #define ECC_POISON1_OFST	0xBC
 
-/* Control regsiter bitfield definitions */
+/* Control register bitfield definitions */
 #define ECC_CTRL_BUSWIDTH_MASK	0x3000
 #define ECC_CTRL_BUSWIDTH_SHIFT	12
 #define ECC_CTRL_CLR_CE_ERRCNT	BIT(2)
@@ -153,18 +153,20 @@
 #define DDRCTL_EWDTH_32		1
 #define DDRCTL_EWDTH_64		0
 
-/* ECC status regsiter definitions */
+/* ECC status register definitions */
 #define ECC_STAT_UECNT_MASK	0xF0000
 #define ECC_STAT_UECNT_SHIFT	16
 #define ECC_STAT_CECNT_MASK	0xF00
 #define ECC_STAT_CECNT_SHIFT	8
 #define ECC_STAT_BITNUM_MASK	0x7F
 
-/* DDR QOS Interrupt regsiter definitions */
+/* DDR QOS Interrupt register definitions */
 #define DDR_QOS_IRQ_STAT_OFST	0x20200
 #define DDR_QOSUE_MASK		0x4
 #define	DDR_QOSCE_MASK		0x2
 #define	ECC_CE_UE_INTR_MASK	0x6
+#define DDR_QOS_IRQ_EN_OFST     0x20208
+#define DDR_QOS_IRQ_DB_OFST	0x2020C
 
 /* ECC Corrected Error Register Mask and Shifts*/
 #define ECC_CEADDR0_RW_MASK	0x3FFFF
@@ -995,10 +997,10 @@ static ssize_t synps_edac_mc_inject_data_poison_store(struct device *dev,
 	return count;
 }
 
-static DEVICE_ATTR(inject_data_error, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(inject_data_error, 0644,
 	    synps_edac_mc_inject_data_error_show,
 	    synps_edac_mc_inject_data_error_store);
-static DEVICE_ATTR(inject_data_poison, S_IRUGO | S_IWUSR,
+static DEVICE_ATTR(inject_data_poison, 0644,
 	    synps_edac_mc_inject_data_poison_show,
 	    synps_edac_mc_inject_data_poison_store);
 
@@ -1115,6 +1117,10 @@ static int synps_edac_mc_probe(struct platform_device *pdev)
 			edac_printk(KERN_ERR, EDAC_MC, "Failed to request Irq\n");
 			goto free_edac_mc;
 		}
+
+		/* Enable UE/CE Interrupts */
+		writel((DDR_QOSUE_MASK | DDR_QOSCE_MASK),
+			priv->baseaddr + DDR_QOS_IRQ_EN_OFST);
 	}
 
 	rc = edac_mc_add_mc(mci);
@@ -1157,6 +1163,10 @@ static int synps_edac_mc_remove(struct platform_device *pdev)
 	struct synps_edac_priv *priv;
 
 	priv = mci->pvt_info;
+	if (priv->p_data->quirks & DDR_ECC_INTR_SUPPORT)
+		/* Disable UE/CE Interrupts */
+		writel((DDR_QOSUE_MASK | DDR_QOSCE_MASK),
+			priv->baseaddr + DDR_QOS_IRQ_DB_OFST);
 	edac_mc_del_mc(&pdev->dev);
 	if (priv->p_data->quirks & DDR_ECC_DATA_POISON_SUPPORT)
 		synps_edac_remove_sysfs_attributes(mci);

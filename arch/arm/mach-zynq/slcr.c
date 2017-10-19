@@ -24,7 +24,6 @@
 
 /* register offsets */
 #define SLCR_UNLOCK_OFFSET		0x8   /* SCLR unlock register */
-
 #define SLCR_PS_RST_CTRL_OFFSET		0x200 /* PS Software Reset Control */
 #define SLCR_FPGA_RST_CTRL_OFFSET	0x240 /* FPGA Software Reset Control */
 #define SLCR_A9_CPU_RST_CTRL_OFFSET	0x244 /* CPU Software Reset Control */
@@ -42,6 +41,7 @@
 
 void __iomem *zynq_slcr_base;
 static struct regmap *zynq_slcr_regmap;
+static u16 zynq_rst_code = 0;
 
 /**
  * zynq_slcr_write - Write to a register in SLCR block
@@ -118,7 +118,15 @@ int zynq_slcr_system_restart(struct notifier_block *nb,
 	 * This is a temporary solution until we know more.
 	 */
 	zynq_slcr_read(&reboot, SLCR_REBOOT_STATUS_OFFSET);
-	zynq_slcr_write(reboot & 0xF0FFFFFF, SLCR_REBOOT_STATUS_OFFSET);
+
+	if (zynq_rst_code) {
+		reboot &= 0xF0FF0000;
+		reboot |= zynq_rst_code;
+	} else {
+		reboot &= 0xF0FFFFFF;
+	}
+
+	zynq_slcr_write(reboot, SLCR_REBOOT_STATUS_OFFSET);
 	zynq_slcr_write(1, SLCR_PS_RST_CTRL_OFFSET);
 	return 0;
 }
@@ -285,3 +293,15 @@ int __init zynq_early_slcr_init(void)
 
 	return 0;
 }
+
+#ifdef CONFIG_XILINX_RESET_CODE
+#include <linux/debugfs.h>
+static int __init init_reset_cause(void)
+{
+    debugfs_create_x16("code", 0644, debugfs_create_dir("zynq_rst", NULL), &zynq_rst_code);
+
+    return 0;
+}
+
+late_initcall(init_reset_cause);
+#endif

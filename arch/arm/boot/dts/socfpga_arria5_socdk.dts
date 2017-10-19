@@ -39,13 +39,6 @@
 		ethernet0 = &gmac1;
 	};
 
-	regulator_3_3v: 3-3-v-regulator {
-		compatible = "regulator-fixed";
-		regulator-name = "3.3V";
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
-	};
-
 	leds {
 		compatible = "gpio-leds";
 		hps0 {
@@ -68,6 +61,13 @@
 			gpios = <&porta 18 1>;
 		};
 	};
+
+	regulator_3_3v: 3-3-v-regulator {
+		compatible = "regulator-fixed";
+		regulator-name = "3.3V";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+	};
 };
 
 &gmac1 {
@@ -82,7 +82,6 @@
 	txc-skew-ps = <2600>;
 	rxdv-skew-ps = <0>;
 	rxc-skew-ps = <2000>;
-	max-frame-size = <3800>;
 };
 
 &gpio0 {
@@ -99,7 +98,7 @@
 
 &i2c0 {
 	status = "okay";
-	speed-mode = <0>;
+	clock-frequency = <100000>;
 
 	/*
 	 * adjust the falling times to decrease the i2c frequency to 50Khz
@@ -131,17 +130,20 @@
 &mmc0 {
 	vmmc-supply = <&regulator_3_3v>;
 	vqmmc-supply = <&regulator_3_3v>;
+	status = "okay";
 };
 
 &qspi {
 	status = "okay";
-	flash0: n25q512a@0 {
+
+	flash: flash@0 {
 		#address-cells = <1>;
 		#size-cells = <1>;
-		compatible = "n25q512a";
-		reg = <0>;      /* chip select */
+		compatible = "n25q256a";
+		reg = <0>;
 		spi-max-frequency = <100000000>;
 
+		m25p,fast-read;
 		cdns,page-size = <256>;
 		cdns,block-size = <16>;
 		cdns,read-delay = <4>;
@@ -157,15 +159,11 @@
 		};
 
 		partition@qspi-rootfs {
-			/* 56MB for jffs2 data. */
+			/* 120MB for jffs2 data. */
 			label = "Flash 0 jffs2 Filesystem";
-			reg = <0x800000 0x3800000>;
+			reg = <0x800000 0x7800000>;
 		};
 	};
-};
-
-&uart0 {
-	status = "okay";
 };
 
 &usb1 {

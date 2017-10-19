@@ -9,7 +9,8 @@ Optional properties:
 			  Default is to leave bridge in current state.
 
 Example:
-	fpga2sdram_br {
+	fpga_bridge3: fpga-bridge@ffc25080 {
 		compatible = "altr,socfpga-fpga2sdram-bridge";
+		reg = <0xffc25080 0x4>;
 		bridge-enable = <0>;
 	};

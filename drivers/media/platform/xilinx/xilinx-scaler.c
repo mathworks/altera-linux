@@ -134,7 +134,7 @@ static s16 lanczos(s16 x, s16 a)
 	temp = fixp_sin16(temp >> FRAC_N);
 
 	/* a * sin(pi * x) */
-	numerator = fixp_mult(temp , a);
+	numerator = fixp_mult(temp, a);
 
 	/* sin(pi * x / a) */
 	temp = (fixp_mult(fixp_new(180), x) << FRAC_N) / a;
@@ -627,7 +627,7 @@ static int xscaler_probe(struct platform_device *pdev)
 	xscaler->pads[XVIP_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
 	subdev->entity.ops = &xscaler_media_ops;
 
-	ret = media_entity_init(&subdev->entity, 2, xscaler->pads, 0);
+	ret = media_entity_pads_init(&subdev->entity, 2, xscaler->pads);
 	if (ret < 0)
 		goto error;
 

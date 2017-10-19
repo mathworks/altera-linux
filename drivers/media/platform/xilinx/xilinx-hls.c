@@ -34,6 +34,7 @@
  * @formats: active V4L2 media bus formats at the sink and source pads
  * @default_formats: default V4L2 media bus formats
  * @vip_formats: format information corresponding to the pads active formats
+ * @model: additional description of IP implementation if available
  * @ctrl_handler: control handler
  * @user_mem: user portion of the register space
  * @user_mem_size: size of the user portion of the register space
@@ -417,7 +418,7 @@ static int xhls_probe(struct platform_device *pdev)
 	xhls->pads[XVIP_PAD_SINK].flags = MEDIA_PAD_FL_SINK;
 	xhls->pads[XVIP_PAD_SOURCE].flags = MEDIA_PAD_FL_SOURCE;
 	subdev->entity.ops = &xhls_media_ops;
-	ret = media_entity_init(&subdev->entity, 2, xhls->pads, 0);
+	ret = media_entity_pads_init(&subdev->entity, 2, xhls->pads);
 	if (ret < 0)
 		goto error;
 

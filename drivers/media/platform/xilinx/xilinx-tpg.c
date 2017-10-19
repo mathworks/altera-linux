@@ -416,7 +416,8 @@ static int xtpg_enum_frame_size(struct v4l2_subdev *subdev,
 
 	/* Min / max values for pad 0 is always fixed in both one and two pads
 	 * modes. In two pads mode, the source pad(= 1) size is identical to
-	 * the sink pad size */
+	 * the sink pad size.
+	 */
 	if (fse->pad == 0) {
 		fse->min_width = XVIP_MIN_WIDTH;
 		fse->max_width = XVIP_MAX_WIDTH;
@@ -909,6 +910,7 @@ static int xtpg_parse_of(struct xtpg_device *xtpg)
 		format = xvip_of_get_format(port);
 		if (IS_ERR(format)) {
 			dev_err(dev, "invalid format in DT");
+			of_node_put(port);
 			return PTR_ERR(format);
 		}
 
@@ -917,6 +919,7 @@ static int xtpg_parse_of(struct xtpg_device *xtpg)
 			xtpg->vip_format = format;
 		} else if (xtpg->vip_format != format) {
 			dev_err(dev, "in/out format mismatch in DT");
+			of_node_put(port);
 			return -EINVAL;
 		}
 
@@ -1042,7 +1045,7 @@ static int xtpg_probe(struct platform_device *pdev)
 	subdev->flags |= V4L2_SUBDEV_FL_HAS_DEVNODE;
 	subdev->entity.ops = &xtpg_media_ops;
 
-	ret = media_entity_init(&subdev->entity, xtpg->npads, xtpg->pads, 0);
+	ret = media_entity_pads_init(&subdev->entity, xtpg->npads, xtpg->pads);
 	if (ret < 0)
 		goto error;
 

@@ -101,7 +101,7 @@
 
 &i2c0 {
 	status = "okay";
-	speed-mode = <0>;
+	clock-frequency = <100000>;
 
 	/*
 	 * adjust the falling times to decrease the i2c frequency to 50Khz
@@ -144,7 +144,7 @@
 	clock-frequency = <19200000>;
 };
 
-&nand {
+&nand0 {
 	status = "okay";
 };
 

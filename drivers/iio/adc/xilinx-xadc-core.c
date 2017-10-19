@@ -95,9 +95,6 @@ static const unsigned int XADC_ZYNQ_UNMASK_TIMEOUT = 500;
 #define XADC_AXI_REG_IPIER		0x68
 #define XADC_AXI_ADC_REG_OFFSET		0x200
 
-/* AXI sysmon offset */
-#define XADC_AXI_SYSMON_REG_OFFSET	0x400
-
 #define XADC_AXI_RESET_MAGIC		0xa
 #define XADC_AXI_GIER_ENABLE		BIT(31)
 
@@ -325,7 +322,6 @@ static irqreturn_t xadc_zynq_interrupt_handler(int irq, void *devid)
 
 #define XADC_ZYNQ_TCK_RATE_MAX 50000000
 #define XADC_ZYNQ_IGAP_DEFAULT 20
-#define XADC_ZYNQ_PCAP_RATE_MAX 200000000
 
 static int xadc_zynq_setup(struct platform_device *pdev,
 	struct iio_dev *indio_dev, int irq)
@@ -344,10 +340,6 @@ static int xadc_zynq_setup(struct platform_device *pdev,
 	xadc->zynq_intmask = ~0;
 
 	pcap_rate = clk_get_rate(xadc->clk);
-
-	if (pcap_rate > XADC_ZYNQ_PCAP_RATE_MAX)
-		clk_set_rate(xadc->clk,
-			(unsigned long) XADC_ZYNQ_PCAP_RATE_MAX);
 
 	if (tck_rate > XADC_ZYNQ_TCK_RATE_MAX)
 		tck_rate = XADC_ZYNQ_TCK_RATE_MAX;
@@ -375,9 +367,6 @@ static int xadc_zynq_setup(struct platform_device *pdev,
 	xadc_write_reg(xadc, XADC_ZYNQ_REG_CFG, XADC_ZYNQ_CFG_ENABLE |
 			XADC_ZYNQ_CFG_REDGE | XADC_ZYNQ_CFG_WEDGE |
 			tck_div | XADC_ZYNQ_CFG_IGAP(igap));
-
-	if (pcap_rate > XADC_ZYNQ_PCAP_RATE_MAX)
-		clk_set_rate(xadc->clk, pcap_rate);
 
 	return 0;
 }
@@ -451,26 +440,6 @@ static int xadc_axi_write_adc_reg(struct xadc *xadc, unsigned int reg,
 	uint16_t val)
 {
 	xadc_write_reg(xadc, XADC_AXI_ADC_REG_OFFSET + reg * 4, val);
-
-	return 0;
-}
-
-/* AXI sysmon read/write methods */
-static int xadc_axi_read_sysmon_reg(struct xadc *xadc, unsigned int reg,
-	uint16_t *val)
-{
-	uint32_t val32;
-
-	xadc_read_reg(xadc, XADC_AXI_SYSMON_REG_OFFSET + reg * 4, &val32);
-	*val = val32 & 0xffff;
-
-	return 0;
-}
-
-static int xadc_axi_write_sysmon_reg(struct xadc *xadc, unsigned int reg,
-	uint16_t val)
-{
-	xadc_write_reg(xadc, XADC_AXI_SYSMON_REG_OFFSET + reg * 4, val);
 
 	return 0;
 }
@@ -551,17 +520,6 @@ static unsigned long xadc_axi_get_dclk(struct xadc *xadc)
 static const struct xadc_ops xadc_axi_ops = {
 	.read = xadc_axi_read_adc_reg,
 	.write = xadc_axi_write_adc_reg,
-	.setup = xadc_axi_setup,
-	.get_dclk_rate = xadc_axi_get_dclk,
-	.update_alarm = xadc_axi_update_alarm,
-	.interrupt_handler = xadc_axi_interrupt_handler,
-	.flags = XADC_FLAGS_BUFFERED,
-};
-
-/* AXI sysmon */
-static const struct xadc_ops sysmon_axi_ops = {
-	.read = xadc_axi_read_sysmon_reg,
-	.write = xadc_axi_write_sysmon_reg,
 	.setup = xadc_axi_setup,
 	.get_dclk_rate = xadc_axi_get_dclk,
 	.update_alarm = xadc_axi_update_alarm,
@@ -845,7 +803,7 @@ err:
 	return ret;
 }
 
-static struct iio_buffer_setup_ops xadc_buffer_ops = {
+static const struct iio_buffer_setup_ops xadc_buffer_ops = {
 	.preenable = &xadc_preenable,
 	.postdisable = &xadc_postdisable,
 };
@@ -1041,23 +999,23 @@ static const struct iio_chan_spec xadc_channels[] = {
 	XADC_CHAN_VOLTAGE(5, 7, XADC_REG_VCCO_DDR, "vccoddr", true),
 	XADC_CHAN_VOLTAGE(6, 12, XADC_REG_VREFP, "vrefp", false),
 	XADC_CHAN_VOLTAGE(7, 13, XADC_REG_VREFN, "vrefn", false),
-	XADC_CHAN_VOLTAGE(8, 11, XADC_REG_VPVN, "vpvn", false),
-	XADC_CHAN_VOLTAGE(9, 16, XADC_REG_VAUX(0), "vaux0", false),
-	XADC_CHAN_VOLTAGE(10, 17, XADC_REG_VAUX(1), "vaux1", false),
-	XADC_CHAN_VOLTAGE(11, 18, XADC_REG_VAUX(2), "vaux2", false),
-	XADC_CHAN_VOLTAGE(12, 19, XADC_REG_VAUX(3), "vaux3", false),
-	XADC_CHAN_VOLTAGE(13, 20, XADC_REG_VAUX(4), "vaux4", false),
-	XADC_CHAN_VOLTAGE(14, 21, XADC_REG_VAUX(5), "vaux5", false),
-	XADC_CHAN_VOLTAGE(15, 22, XADC_REG_VAUX(6), "vaux6", false),
-	XADC_CHAN_VOLTAGE(16, 23, XADC_REG_VAUX(7), "vaux7", false),
-	XADC_CHAN_VOLTAGE(17, 24, XADC_REG_VAUX(8), "vaux8", false),
-	XADC_CHAN_VOLTAGE(18, 25, XADC_REG_VAUX(9), "vaux9", false),
-	XADC_CHAN_VOLTAGE(19, 26, XADC_REG_VAUX(10), "vaux10", false),
-	XADC_CHAN_VOLTAGE(20, 27, XADC_REG_VAUX(11), "vaux11", false),
-	XADC_CHAN_VOLTAGE(21, 28, XADC_REG_VAUX(12), "vaux12", false),
-	XADC_CHAN_VOLTAGE(22, 29, XADC_REG_VAUX(13), "vaux13", false),
-	XADC_CHAN_VOLTAGE(23, 30, XADC_REG_VAUX(14), "vaux14", false),
-	XADC_CHAN_VOLTAGE(24, 31, XADC_REG_VAUX(15), "vaux15", false),
+	XADC_CHAN_VOLTAGE(8, 11, XADC_REG_VPVN, NULL, false),
+	XADC_CHAN_VOLTAGE(9, 16, XADC_REG_VAUX(0), NULL, false),
+	XADC_CHAN_VOLTAGE(10, 17, XADC_REG_VAUX(1), NULL, false),
+	XADC_CHAN_VOLTAGE(11, 18, XADC_REG_VAUX(2), NULL, false),
+	XADC_CHAN_VOLTAGE(12, 19, XADC_REG_VAUX(3), NULL, false),
+	XADC_CHAN_VOLTAGE(13, 20, XADC_REG_VAUX(4), NULL, false),
+	XADC_CHAN_VOLTAGE(14, 21, XADC_REG_VAUX(5), NULL, false),
+	XADC_CHAN_VOLTAGE(15, 22, XADC_REG_VAUX(6), NULL, false),
+	XADC_CHAN_VOLTAGE(16, 23, XADC_REG_VAUX(7), NULL, false),
+	XADC_CHAN_VOLTAGE(17, 24, XADC_REG_VAUX(8), NULL, false),
+	XADC_CHAN_VOLTAGE(18, 25, XADC_REG_VAUX(9), NULL, false),
+	XADC_CHAN_VOLTAGE(19, 26, XADC_REG_VAUX(10), NULL, false),
+	XADC_CHAN_VOLTAGE(20, 27, XADC_REG_VAUX(11), NULL, false),
+	XADC_CHAN_VOLTAGE(21, 28, XADC_REG_VAUX(12), NULL, false),
+	XADC_CHAN_VOLTAGE(22, 29, XADC_REG_VAUX(13), NULL, false),
+	XADC_CHAN_VOLTAGE(23, 30, XADC_REG_VAUX(14), NULL, false),
+	XADC_CHAN_VOLTAGE(24, 31, XADC_REG_VAUX(15), NULL, false),
 };
 
 static const struct iio_info xadc_info = {
@@ -1074,7 +1032,6 @@ static const struct iio_info xadc_info = {
 static const struct of_device_id xadc_of_match_table[] = {
 	{ .compatible = "xlnx,zynq-xadc-1.00.a", (void *)&xadc_zynq_ops },
 	{ .compatible = "xlnx,axi-xadc-1.00.a", (void *)&xadc_axi_ops },
-	{ .compatible = "xlnx,axi-sysmon-1.3", (void *)&sysmon_axi_ops},
 	{ },
 };
 MODULE_DEVICE_TABLE(of, xadc_of_match_table);
@@ -1083,7 +1040,7 @@ static int xadc_parse_dt(struct iio_dev *indio_dev, struct device_node *np,
 	unsigned int *conf)
 {
 	struct xadc *xadc = iio_priv(indio_dev);
-	struct iio_chan_spec *channels;
+	struct iio_chan_spec *channels, *chan;
 	struct device_node *chan_node, *child;
 	unsigned int num_channels;
 	const char *external_mux;
@@ -1131,6 +1088,7 @@ static int xadc_parse_dt(struct iio_dev *indio_dev, struct device_node *np,
 		return -ENOMEM;
 
 	num_channels = 9;
+	chan = &channels[9];
 
 	chan_node = of_get_child_by_name(np, "xlnx,channels");
 	if (chan_node) {
@@ -1140,17 +1098,22 @@ static int xadc_parse_dt(struct iio_dev *indio_dev, struct device_node *np,
 				break;
 			}
 
-			channels[num_channels] = xadc_channels[reg + 9];
-			channels[num_channels].channel = num_channels - 1;
-
 			ret = of_property_read_u32(child, "reg", &reg);
 			if (ret || reg > 16)
 				continue;
 
 			if (of_property_read_bool(child, "xlnx,bipolar"))
-				channels[num_channels].scan_type.sign = 's';
+				chan->scan_type.sign = 's';
 
+			if (reg == 0) {
+				chan->scan_index = 11;
+				chan->address = XADC_REG_VPVN;
+			} else {
+				chan->scan_index = 15 + reg;
+				chan->address = XADC_REG_VAUX(reg - 1);
+			}
 			num_channels++;
+			chan++;
 		}
 	}
 	of_node_put(chan_node);

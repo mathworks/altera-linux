@@ -1,7 +1,7 @@
 /*
  * AD9361 Agile RF Transceiver
  *
- * Copyright 2013-2015 Analog Devices Inc.
+ * Copyright 2013-2017 Analog Devices Inc.
  *
  * Licensed under the GPL-2.
  */
@@ -26,7 +26,7 @@
 
 #include "ad9361.h"
 
-#ifdef CONFIG_CF_AXI_ADC
+#if IS_ENABLED(CONFIG_CF_AXI_ADC)
 #include "cf_axi_adc.h"
 
 ssize_t ad9361_dig_interface_timing_analysis(struct ad9361_rf_phy *phy,
@@ -98,6 +98,54 @@ ssize_t ad9361_dig_interface_timing_analysis(struct ad9361_rf_phy *phy,
 }
 EXPORT_SYMBOL(ad9361_dig_interface_timing_analysis);
 
+static ssize_t samples_pps_read(struct iio_dev *indio_dev,
+				    uintptr_t private,
+				    const struct iio_chan_spec *chan, char *buf)
+{
+	struct axiadc_converter *conv = iio_device_get_drvdata(indio_dev);
+	struct axiadc_state *st = iio_priv(conv->indio_dev);
+	u32 config, val, mode;
+
+	config = axiadc_read(st, ADI_REG_CONFIG);
+
+	if (!(config & ADI_PPS_RECEIVER_ENABLE))
+		return -ENODEV;
+
+	val = axiadc_read(st, ADI_REG_CLOCKS_PER_PPS_STATUS);
+	if (val & ADI_CLOCKS_PER_PPS_STAT_INVAL)
+		return -ETIMEDOUT;
+
+	mode = axiadc_read(st, ADI_REG_CNTRL);
+
+	/*
+	 * Counts DATA_CLK cycles therefore needs to be corrected
+	 * for 2rx2tx mode or for LVDS vs. CMOS mode.
+	 */
+
+	val = axiadc_read(st, ADI_REG_CLOCKS_PER_PPS);
+
+	if (!(mode & ADI_R1_MODE))
+		val /= 2;
+
+	if (!(config & ADI_CMOS_OR_LVDS_N))
+		val /= 2;
+
+	return sprintf(buf, "%u\n", val);
+}
+
+/*
+ * Returns the number of samples during a 1PPS (Pulse Per Second) interval.
+ */
+
+static struct iio_chan_spec_ext_info axiadc_ext_info[] = {
+	{
+		.name = "samples_pps",
+		.read = samples_pps_read,
+		.shared = IIO_SHARED_BY_TYPE,
+	},
+	{},
+};
+
 #define AIM_CHAN(_chan, _si, _bits, _sign)			\
 	{ .type = IIO_VOLTAGE,						\
 	  .indexed = 1,							\
@@ -106,7 +154,7 @@ EXPORT_SYMBOL(ad9361_dig_interface_timing_analysis);
 			BIT(IIO_CHAN_INFO_CALIBBIAS) |			\
 			BIT(IIO_CHAN_INFO_CALIBPHASE),			\
 	  .info_mask_shared_by_type = BIT(IIO_CHAN_INFO_SAMP_FREQ),	\
-	/*.ext_info = axiadc_ext_info,*/			\
+	  .ext_info = axiadc_ext_info,					\
 	  .scan_index = _si,						\
 	  .scan_type = {						\
 		.sign = _sign,						\
@@ -172,7 +220,7 @@ static const struct axiadc_chip_info axiadc_chip_info_tbl[] = {
 		.channel[7] = AIM_MC_CHAN(7, 7, 12, 'S'),
 	},
 	[ID_AD9364] = {
-		.name = "AD9361",
+		.name = "AD9364",
 		.max_rate = 61440000UL,
 		.max_testmode = 0,
 		.num_channels = 2,
@@ -377,7 +425,7 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 	struct axiadc_state *st;
 	int ret, i, j, k, chan, t, num_chan, err = 0;
 	u32 s0, s1, c0, c1, tmp, saved = 0;
-	u8 field[2][16];
+	u8 field[2][16], loopback, bist;
 	u32 saved_dsel[4], saved_chan_ctrl6[4], saved_chan_ctrl0[4];
 	u32 rates[3] = {25000000U, 40000000U, 61440000U};
 	unsigned hdl_dac_version;
@@ -424,6 +472,10 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 	num_chan = (conv->chip_info->num_channels > 4) ? 4 :
 		conv->chip_info->num_channels;
 
+	loopback = phy->bist_loopback_mode;
+	bist = phy->bist_config;
+
+	ad9361_bist_loopback(phy, 0);
 	ad9361_bist_prbs(phy, BIST_INJ_RX);
 
 	for (t = 0; t < 2; t++) {
@@ -495,6 +547,8 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 
 			if (phy->pdata->dig_interface_tune_skipmode == 1) {
 			/* skip TX */
+				ad9361_spi_write(phy->spi, REG_BIST_CONFIG, bist);
+
 				if (!(flags & SKIP_STORE_RESULT))
 					phy->pdata->port_ctrl.rx_clk_data_delay =
 						ad9361_spi_read(phy->spi, REG_RX_CLOCK_DATA_DELAY);
@@ -541,7 +595,8 @@ int ad9361_dig_tune(struct ad9361_rf_phy *phy, unsigned long max_freq,
 			if (flags & DO_ODELAY)
 				ad9361_dig_tune_iodelay(phy, 1);
 
-			ad9361_bist_loopback(phy, 0);
+			ad9361_bist_loopback(phy, loopback);
+			ad9361_spi_write(phy->spi, REG_BIST_CONFIG, bist);
 
 			if (PCORE_VERSION_MAJOR(hdl_dac_version) < 8)
 				axiadc_write(st, 0x4048, saved);
@@ -598,6 +653,7 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 	struct axiadc_converter *conv = iio_device_get_drvdata(indio_dev);
 	struct ad9361_rf_phy *phy = conv->phy;
 	unsigned rx2tx2 = phy->pdata->rx2tx2;
+	unsigned half_rate = phy->pdata->axi_half_dac_rate_en;
 	unsigned tmp, num_chan, flags;
 	int i, ret;
 
@@ -609,16 +665,20 @@ static int ad9361_post_setup(struct iio_dev *indio_dev)
 
 	if (!rx2tx2) {
 		axiadc_write(st, 0x4048, tmp | BIT(5)); /* R1_MODE */
-		axiadc_write(st, 0x404c,
+		if (!half_rate)
+			axiadc_write(st, 0x404c,
 			     (phy->pdata->port_ctrl.pp_conf[2] & LVDS_MODE) ? 1 : 0); /* RATE */
+		else
+			axiadc_write(st, 0x404c, 0);
 	} else {
 		tmp &= ~BIT(5);
 		axiadc_write(st, 0x4048, tmp);
-		axiadc_write(st, 0x404c,
+		if (!half_rate)
+			axiadc_write(st, 0x404c,
 			     (phy->pdata->port_ctrl.pp_conf[2] & LVDS_MODE) ? 3 : 1); /* RATE */
+		else
+			axiadc_write(st, 0x404c, 1);
 	}
-
-	axiadc_write(st, 0x404c, 1); /* Altera */
 
 	for (i = 0; i < num_chan; i++) {
 		axiadc_write(st, ADI_REG_CHAN_CNTRL_1(i),
@@ -678,9 +738,6 @@ int ad9361_register_axi_converter(struct ad9361_rf_phy *phy)
 	conv->chip_info = &axiadc_chip_info_tbl[
 		(spi_get_device_id(spi)->driver_data == ID_AD9361_2) ?
 		ID_AD9361_2 : phy->pdata->rx2tx2 ? ID_AD9361 : ID_AD9364];
-	conv->adc_output_mode = OUTPUT_MODE_TWOS_COMPLEMENT;
-	conv->write = ad9361_spi_write;
-	conv->read = ad9361_spi_read;
 	conv->write_raw = ad9361_write_raw;
 	conv->read_raw = ad9361_read_raw;
 	conv->post_setup = ad9361_post_setup;

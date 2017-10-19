@@ -23,7 +23,11 @@
 #include "ad9122.h"
 #include "cf_axi_dds.h"
 
-static const char clk_names[CLK_NUM][10] = {"data_clk", "dac_clk", "ref_clk"};
+static const char * const clk_names[] = {
+	[CLK_DATA] = "data_clk",
+	[CLK_DAC] = "dac_clk",
+	[CLK_REF] = "ref_clk"
+};
 
 static const unsigned char ad9122_reg_defaults[][2] = {
 	{AD9122_REG_COMM, 0x00},
@@ -357,7 +361,7 @@ static int ad9122_get_clks(struct cf_axi_converter *conv)
 	int i, ret;
 
 	for (i = 0; i < CLK_NUM; i++) {
-		clk = clk_get(&conv->spi->dev, &clk_names[i][0]);
+		clk = clk_get(&conv->spi->dev, clk_names[i]);
 		if (IS_ERR(clk)) {
 			return -EPROBE_DEFER;
 		}
@@ -371,7 +375,7 @@ static int ad9122_get_clks(struct cf_axi_converter *conv)
 	return 0;
 }
 
-static unsigned long ad9122_get_data_clk(struct cf_axi_converter *conv)
+static unsigned long long ad9122_get_data_clk(struct cf_axi_converter *conv)
 {
 	return clk_get_rate(conv->clk[CLK_DATA]);
 }
@@ -571,7 +575,7 @@ static int ad9122_set_interpol_fcent_freq(struct cf_axi_converter *conv,
 {
 
 	return __ad9122_set_interpol(conv, conv->interp_factor,
-		(freq * 2) / ad9122_get_data_clk(conv), 0);
+		(freq * 2) / (u32) ad9122_get_data_clk(conv), 0);
 }
 
 static unsigned long ad9122_get_interpol_freq(struct cf_axi_converter *conv)
@@ -973,12 +977,6 @@ out:
 	return ret;
 }
 
-static int ad9122_remove(struct spi_device *spi)
-{
-	spi_set_drvdata(spi, NULL);
-	return 0;
-}
-
 static const struct spi_device_id ad9122_id[] = {
 	{"ad9122", 0},
 	{}
@@ -991,7 +989,6 @@ static struct spi_driver ad9122_driver = {
 		.owner	= THIS_MODULE,
 	},
 	.probe		= ad9122_probe,
-	.remove		= ad9122_remove,
 	.id_table	= ad9122_id,
 };
 module_spi_driver(ad9122_driver);

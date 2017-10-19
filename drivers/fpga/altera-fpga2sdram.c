@@ -1,7 +1,7 @@
 /*
  * FPGA to SDRAM Bridge Driver for Altera SoCFPGA Devices
  *
- *  Copyright (C) 2013-2015 Altera Corporation, All Rights Reserved.
+ *  Copyright (C) 2013-2016 Altera Corporation, All Rights Reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms and conditions of the GNU General Public License,
@@ -47,8 +47,14 @@
 #define ALT_SDR_CTL_FPGAPORTRST_WR_SHIFT	4
 #define ALT_SDR_CTL_FPGAPORTRST_CTRL_SHIFT	8
 
+/*
+ * From the Cyclone V HPS Memory Map document:
+ *   These registers are used to store handoff information between the
+ *   preloader and the OS. These 8 registers can be used to store any
+ *   information. The contents of these registers have no impact on
+ *   the state of the HPS hardware.
+ */
 #define SYSMGR_ISWGRP_HANDOFF3          (0x8C)
-#define ISWGRP_HANDOFF_FPGA2SDR         SYSMGR_ISWGRP_HANDOFF3
 
 #define F2S_BRIDGE_NAME "fpga2sdram"
 
@@ -117,7 +123,7 @@ static int alt_fpga_bridge_probe(struct platform_device *pdev)
 	}
 
 	sysmgr = syscon_regmap_lookup_by_compatible("altr,sys-mgr");
-	if (IS_ERR(priv->sdrctl)) {
+	if (IS_ERR(sysmgr)) {
 		dev_err(dev, "regmap for altr,sys-mgr lookup failed.\n");
 		return PTR_ERR(sysmgr);
 	}

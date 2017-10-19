@@ -22,11 +22,6 @@
 	#address-cells = <1>;
 	#size-cells = <1>;
 
-	aliases {
-		serial0 = &uart0;
-		serial1 = &uart1;
-	};
-
 	cpus {
 		#address-cells = <1>;
 		#size-cells = <0>;
@@ -63,7 +58,7 @@
 		ranges;
 
 		amba {
-			compatible = "arm,amba-bus";
+			compatible = "simple-bus";
 			#address-cells = <1>;
 			#size-cells = <1>;
 			ranges;
@@ -85,7 +80,16 @@
 				#dma-requests = <32>;
 				clocks = <&l4_main_clk>;
 				clock-names = "apb_pclk";
+				microcode-cached;
 			};
+		};
+
+		base_fpga_region {
+			#address-cells = <0x1>;
+			#size-cells = <0x1>;
+
+			compatible = "fpga-region";
+			fpga-mgr = <&fpga_mgr>;
 		};
 
 		clkmgr@ffd04000 {
@@ -365,6 +369,7 @@
 						compatible = "altr,socfpga-a10-gate-clk";
 						clocks = <&sdmmc_free_clk>;
 						clk-gate = <0xC8 5>;
+						clk-phase = <0 135>;
 					};
 
 					qspi_clk: qspi_clk {
@@ -516,11 +521,13 @@
 			};
 		};
 
-		hps_0_fpgamgr: fpgamgr@0xffcfe400 {
+		fpga_mgr: fpga-mgr@ffd03000 {
 			compatible = "altr,socfpga-a10-fpga-mgr";
-			transport = "mmio";
-			reg = <0xffd03000 0x1000
-			       0xffcfe400 0x1000>;
+			reg = <0xffd03000 0x100
+			       0xffcfe400 0x20>;
+			clocks = <&l4_mp_clk>;
+			resets = <&rst FPGAMGR_RESET>;
+			reset-names = "fpgamgr";
 		};
 
 		i2c0: i2c@ffc02200 {
@@ -573,17 +580,6 @@
 			status = "disabled";
 		};
 
-		sdr: sdr@ffc25000 {
-			compatible = "syscon";
-			reg = <0xffcfb100 0x80>;
-		};
-
-		sdramedac {
-			compatible = "altr,sdram-edac-a10";
-			altr,sdr-syscon = <&sdr>;
-			interrupts = <0 2 4>, <0 0 4>;
-		};
-
 		spi1: spi@ffda5000 {
 			compatible = "snps,dw-apb-ssi";
 			#address-cells = <1>;
@@ -592,10 +588,16 @@
 			interrupts = <0 102 4>;
 			num-chipselect = <4>;
 			bus-num = <0>;
+			/*32bit_access;*/
 			tx-dma-channel = <&pdma 16>;
 			rx-dma-channel = <&pdma 17>;
 			clocks = <&spi_m_clk>;
 			status = "disabled";
+		};
+
+		sdr: sdr@ffc25000 {
+			compatible = "altr,sdr-ctl", "syscon";
+			reg = <0xffcfb100 0x80>;
 		};
 
 		L2: l2-cache@fffff000 {
@@ -604,42 +606,9 @@
 			interrupts = <0 18 IRQ_TYPE_LEVEL_HIGH>;
 			cache-unified;
 			cache-level = <2>;
-		};
-
-		l2edac@ffd06000 {
-			compatible = "altr,a10-l2-edac";
-			reg = <0xffd06000 0x200>;
-			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
-				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		ocramedac@ff8c3000 {
-			compatible = "altr,a10-ocram-edac";
-			reg = <0xff8c3000 0x5000>;
-			iram = <&ocram>;
-			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
-				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		nandedac_buf@ff8c2000 {
-			compatible = "altr,a10-nand-buf-edac";
-			reg = <0xff8c2000 0x400>;
-			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
-				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		nandedac_rd@ff8c2400 {
-			compatible = "altr,a10-nand-rd-edac";
-			reg = <0xff8c2400 0x400>;
-			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
-				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
-		};
-
-		nandedac_wr@ff8c2800 {
-			compatible = "altr,a10-nand-wr-edac";
-			reg = <0xff8c2800 0x400>;
-			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
-				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+			prefetch-data = <1>;
+			prefetch-instr = <1>;
+			arm,shared-override;
 		};
 
 		mmc: dwmmc0@ff808000 {
@@ -649,8 +618,21 @@
 			reg = <0xff808000 0x1000>;
 			interrupts = <0 98 IRQ_TYPE_LEVEL_HIGH>;
 			fifo-depth = <0x400>;
-			clocks = <&l4_mp_clk>, <&sdmmc_free_clk>;
+			clocks = <&l4_mp_clk>, <&sdmmc_clk>;
 			clock-names = "biu", "ciu";
+			status = "disabled";
+		};
+
+		nand: nand@ffb90000 {
+			#address-cells = <1>;
+			#size-cells = <1>;
+			compatible = "denali,denali-nand-dt", "altr,socfpga-denali-nand";
+			reg = <0xffb90000 0x72000>,
+			      <0xffb80000 0x10000>;
+			reg-names = "nand_data", "denali_reg";
+			interrupts = <0 99 4>;
+			dma-mask = <0xffffffff>;
+			clocks = <&nand_clk>;
 			status = "disabled";
 		};
 
@@ -659,18 +641,82 @@
 			reg = <0xffe00000 0x40000>;
 		};
 
+		eccmgr: eccmgr@ffd06000 {
+			compatible = "altr,socfpga-a10-ecc-manager";
+			altr,sysmgr-syscon = <&sysmgr>;
+			#address-cells = <1>;
+			#size-cells = <1>;
+			interrupts = <0 2 IRQ_TYPE_LEVEL_HIGH>,
+				     <0 0 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-controller;
+			#interrupt-cells = <2>;
+			ranges;
+
+			sdramedac {
+				compatible = "altr,sdram-edac-a10";
+				altr,sdr-syscon = <&sdr>;
+				interrupts = <17 IRQ_TYPE_LEVEL_HIGH>,
+					     <49 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			l2-ecc@ffd06010 {
+				compatible = "altr,socfpga-a10-l2-ecc";
+				reg = <0xffd06010 0x4>;
+				interrupts = <0 IRQ_TYPE_LEVEL_HIGH>,
+					     <32 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			ocram-ecc@ff8c3000 {
+				compatible = "altr,socfpga-a10-ocram-ecc";
+				reg = <0xff8c3000 0x400>;
+				interrupts = <1 IRQ_TYPE_LEVEL_HIGH>,
+					     <33 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			emac0-rx-ecc@ff8c0800 {
+				compatible = "altr,socfpga-eth-mac-ecc";
+				reg = <0xff8c0800 0x400>;
+				altr,ecc-parent = <&gmac0>;
+				interrupts = <4 IRQ_TYPE_LEVEL_HIGH>,
+					     <36 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			emac0-tx-ecc@ff8c0c00 {
+				compatible = "altr,socfpga-eth-mac-ecc";
+				reg = <0xff8c0c00 0x400>;
+				altr,ecc-parent = <&gmac0>;
+				interrupts = <5 IRQ_TYPE_LEVEL_HIGH>,
+					     <37 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			dma-ecc@ff8c8000 {
+				compatible = "altr,socfpga-dma-ecc";
+				reg = <0xff8c8000 0x400>;
+				altr,ecc-parent = <&pdma>;
+				interrupts = <10 IRQ_TYPE_LEVEL_HIGH>,
+					     <42 IRQ_TYPE_LEVEL_HIGH>;
+			};
+
+			usb0-ecc@ff8c8800 {
+				compatible = "altr,socfpga-usb-ecc";
+				reg = <0xff8c8800 0x400>;
+				altr,ecc-parent = <&usb0>;
+				interrupts = <2 IRQ_TYPE_LEVEL_HIGH>,
+					     <34 IRQ_TYPE_LEVEL_HIGH>;
+			};
+		};
+
 		qspi: spi@ff809000 {
+			compatible = "cdns,qspi-nor";
 			#address-cells = <1>;
 			#size-cells = <0>;
-			compatible = "cadence,qspi";
 			reg = <0xff809000 0x100>,
-				<0xffa00000 0x100000>;
+			      <0xffa00000 0x100000>;
 			interrupts = <0 100 IRQ_TYPE_LEVEL_HIGH>;
-			clocks = <&l4_main_clk>;
-			ext-decoder = <0>;  /* external decoder */
-			num-chipselect = <4>;
-			fifo-depth = <128>;
-			bus-num = <2>;
+			cdns,fifo-depth = <128>;
+			cdns,fifo-width = <4>;
+			cdns,trigger-address = <0x00000000>;
+			clocks = <&qspi_clk>;
 			status = "disabled";
 		};
 
@@ -764,6 +810,8 @@
 			interrupts = <0 95 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&usb_clk>;
 			clock-names = "otg";
+			resets = <&rst USB0_RESET>;
+			reset-names = "dwc2";
 			phys = <&usbphy0>;
 			phy-names = "usb2-phy";
 			status = "disabled";
@@ -775,6 +823,8 @@
 			interrupts = <0 96 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&usb_clk>;
 			clock-names = "otg";
+			resets = <&rst USB1_RESET>;
+			reset-names = "dwc2";
 			phys = <&usbphy0>;
 			phy-names = "usb2-phy";
 			status = "disabled";

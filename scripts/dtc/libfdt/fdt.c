@@ -57,7 +57,7 @@
 
 int fdt_check_header(const void *fdt)
 {
-	if (fdt_magic(fdt) == FDT_MAGIC) {
+	if (fdt_magic(fdt) == FDT_MAGIC || fdt_magic(fdt) == FDT_MAGIC_DTBO) {
 		/* Complete tree */
 		if (fdt_version(fdt) < FDT_FIRST_SUPPORTED_VERSION)
 			return -FDT_ERR_BADVERSION;
@@ -76,18 +76,19 @@ int fdt_check_header(const void *fdt)
 
 const void *fdt_offset_ptr(const void *fdt, int offset, unsigned int len)
 {
-	const char *p;
+	unsigned absoffset = offset + fdt_off_dt_struct(fdt);
+
+	if ((absoffset < offset)
+	    || ((absoffset + len) < absoffset)
+	    || (absoffset + len) > fdt_totalsize(fdt))
+		return NULL;
 
 	if (fdt_version(fdt) >= 0x11)
 		if (((offset + len) < offset)
 		    || ((offset + len) > fdt_size_dt_struct(fdt)))
 			return NULL;
 
-	p = _fdt_offset_ptr(fdt, offset);
-
-	if (p + len < p)
-		return NULL;
-	return p;
+	return _fdt_offset_ptr(fdt, offset);
 }
 
 uint32_t fdt_next_tag(const void *fdt, int startoffset, int *nextoffset)

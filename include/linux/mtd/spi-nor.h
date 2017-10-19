@@ -12,6 +12,7 @@
 
 #include <linux/bitops.h>
 #include <linux/mtd/cfi.h>
+#include <linux/mtd/mtd.h>
 
 /*
  * Manufacturer IDs
@@ -20,12 +21,14 @@
  * Sometimes these are the same as CFI IDs, but sometimes they aren't.
  */
 #define SNOR_MFR_ATMEL		CFI_MFR_ATMEL
+#define SNOR_MFR_GIGADEVICE	0xc8
 #define SNOR_MFR_INTEL		CFI_MFR_INTEL
 #define SNOR_MFR_MICRON		CFI_MFR_ST /* ST Micro <--> Micron */
 #define SNOR_MFR_MACRONIX	CFI_MFR_MACRONIX
 #define SNOR_MFR_SPANSION	CFI_MFR_AMD
 #define SNOR_MFR_SST		CFI_MFR_SST
 #define SNOR_MFR_WINBOND	0xef /* Also used by some Spansion */
+#define SNOR_MFR_ISSI		CFI_MFR_ISSI
 
 /*
  * Note on opcode nomenclature: some opcodes have a format like
@@ -52,6 +55,8 @@
 #define SPINOR_OP_RDID		0x9f	/* Read JEDEC ID */
 #define SPINOR_OP_RDCR		0x35	/* Read configuration register */
 #define SPINOR_OP_RDFSR		0x70	/* Read flag status register */
+#define SPINOR_OP_WREAR		0xc5	/* Write Extended Address Register */
+#define SPINOR_OP_RDEAR		0xc8	/* Read Extended Address Register */
 
 /* 4-byte address opcodes - used on Spansion and some Macronix flashes. */
 #define SPINOR_OP_READ4		0x13	/* Read data bytes (low frequency) */
@@ -66,12 +71,15 @@
 #define SPINOR_OP_WRDI		0x04	/* Write disable */
 #define SPINOR_OP_AAI_WP	0xad	/* Auto address increment word program */
 
+#define GLOBAL_BLKPROT_UNLK	0x98	/* Clear global write protection bits */
+
 /* Used for Macronix and Winbond flashes. */
 #define SPINOR_OP_EN4B		0xb7	/* Enter 4-byte mode */
 #define SPINOR_OP_EX4B		0xe9	/* Exit 4-byte mode */
 
 /* Used for Spansion flashes only. */
 #define SPINOR_OP_BRWR		0x17	/* Bank register write */
+#define	SPINOR_OP_BRRD		0x16	/* Bank register read */
 
 /* Used for Micron flashes only. */
 #define SPINOR_OP_RD_EVCR      0x65    /* Read EVCR register */
@@ -84,7 +92,16 @@
 #define SR_BP0			BIT(2)	/* Block protect 0 */
 #define SR_BP1			BIT(3)	/* Block protect 1 */
 #define SR_BP2			BIT(4)	/* Block protect 2 */
+#define	SR_BP_BIT_OFFSET	2	/* Offset to Block protect 0 */
+#define	SR_BP_BIT_MASK		(SR_BP2 | SR_BP1 | SR_BP0)
+
+#define SR_TB			BIT(5)	/* Top/Bottom protect */
 #define SR_SRWD			BIT(7)	/* SR write protect */
+#define SR_BP3			0x40
+/* Bit to determine whether protection starts from top or bottom */
+#define SR_BP_TB		0x20
+#define BP_BITS_FROM_SR(sr)	(((sr) & SR_BP_BIT_MASK) >> SR_BP_BIT_OFFSET)
+#define M25P_MAX_LOCKABLE_SECTORS	64
 
 #define SR_QUAD_EN_MX		BIT(6)	/* Macronix Quad I/O */
 
@@ -96,6 +113,9 @@
 
 /* Configuration Register bits. */
 #define CR_QUAD_EN_SPAN		BIT(1)	/* Spansion Quad I/O */
+
+/* Extended/Bank Address Register bits */
+#define EAR_SEGMENT_MASK	0x7 /* 128 Mb segment mask */
 
 enum read_mode {
 	SPI_NOR_NORMAL = 0,
@@ -115,16 +135,14 @@ enum spi_nor_ops {
 
 enum spi_nor_option_flags {
 	SNOR_F_USE_FSR		= BIT(0),
+	SNOR_F_HAS_SR_TB	= BIT(1),
 };
-
-struct mtd_info;
 
 /**
  * struct spi_nor - Structure for defining a the SPI NOR layer
  * @mtd:		point to a mtd_info structure
  * @lock:		the lock for the read/write/erase/lock/unlock operations
  * @dev:		point to a spi device, or a spi nor controller device.
- * @flash_node:		point to a device node describing this flash instance.
  * @page_size:		the page size of the SPI NOR
  * @addr_width:		number of address bytes
  * @erase_opcode:	the opcode for erasing a sector
@@ -144,7 +162,8 @@ struct mtd_info;
  * @read:		[DRIVER-SPECIFIC] read data from the SPI NOR
  * @write:		[DRIVER-SPECIFIC] write data to the SPI NOR
  * @erase:		[DRIVER-SPECIFIC] erase a sector of the SPI NOR
- *			at the offset @offs
+ *			at the offset @offs; if not provided by the driver,
+ *			spi-nor will send the erase opcode via write_reg()
  * @flash_lock:		[FLASH-SPECIFIC] lock a region of the SPI NOR
  * @flash_unlock:	[FLASH-SPECIFIC] unlock a region of the SPI NOR
  * @flash_is_locked:	[FLASH-SPECIFIC] check if a region of the SPI NOR is
@@ -155,17 +174,22 @@ struct spi_nor {
 	struct mtd_info		mtd;
 	struct mutex		lock;
 	struct device		*dev;
-	struct device_node	*flash_node;
+	struct spi_device       *spi;
 	u32			page_size;
 	u8			addr_width;
 	u8			erase_opcode;
 	u8			read_opcode;
 	u8			read_dummy;
 	u8			program_opcode;
-	u32			jedec_id;
-
 	enum read_mode		flash_read;
+	u32			jedec_id;
+	u16			curbank;
+	u16			n_sectors;
+	u32			sector_size;
 	bool			sst_write_second;
+	bool			shift;
+	bool			isparallel;
+	bool                    isstacked;
 	u32			flags;
 	u8			cmd_buf[SPI_NOR_MAX_CMD_SIZE];
 
@@ -173,12 +197,11 @@ struct spi_nor {
 	void (*unprepare)(struct spi_nor *nor, enum spi_nor_ops ops);
 	int (*read_reg)(struct spi_nor *nor, u8 opcode, u8 *buf, int len);
 	int (*write_reg)(struct spi_nor *nor, u8 opcode, u8 *buf, int len);
-	void (*shutdown)(struct spi_nor *nor);
 
-	int (*read)(struct spi_nor *nor, loff_t from,
-			size_t len, size_t *retlen, u_char *read_buf);
-	void (*write)(struct spi_nor *nor, loff_t to,
-			size_t len, size_t *retlen, const u_char *write_buf);
+	ssize_t (*read)(struct spi_nor *nor, loff_t from,
+			size_t len, u_char *read_buf);
+	ssize_t (*write)(struct spi_nor *nor, loff_t to,
+			size_t len, const u_char *write_buf);
 	int (*erase)(struct spi_nor *nor, loff_t offs);
 
 	int (*flash_lock)(struct spi_nor *nor, loff_t ofs, uint64_t len);
@@ -187,6 +210,17 @@ struct spi_nor {
 
 	void *priv;
 };
+
+static inline void spi_nor_set_flash_node(struct spi_nor *nor,
+					  struct device_node *np)
+{
+	mtd_set_of_node(&nor->mtd, np);
+}
+
+static inline struct device_node *spi_nor_get_flash_node(struct spi_nor *nor)
+{
+	return mtd_get_of_node(&nor->mtd);
+}
 
 /**
  * spi_nor_scan() - scan the SPI NOR

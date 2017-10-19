@@ -45,11 +45,10 @@ static int create_overlay(struct cfs_overlay_item *overlay, void *blob)
 	int err;
 
 	/* unflatten the tree */
-	of_fdt_unflatten_tree(blob, &overlay->overlay);
+	of_fdt_unflatten_tree(blob, NULL, &overlay->overlay);
 	if (overlay->overlay == NULL) {
 		pr_err("%s: failed to unflatten tree\n", __func__);
-		err = -EINVAL;
-		goto out_err;
+		return -EINVAL;
 	}
 	pr_debug("%s: unflattened OK\n", __func__);
 
@@ -60,7 +59,7 @@ static int create_overlay(struct cfs_overlay_item *overlay, void *blob)
 	err = of_resolve_phandles(overlay->overlay);
 	if (err != 0) {
 		pr_err("%s: Failed to resolve tree\n", __func__);
-		goto out_err;
+		return err;
 	}
 	pr_debug("%s: resolved OK\n", __func__);
 
@@ -68,12 +67,11 @@ static int create_overlay(struct cfs_overlay_item *overlay, void *blob)
 	if (err < 0) {
 		pr_err("%s: Failed to create overlay (err=%d)\n",
 				__func__, err);
-		goto out_err;
+		return err;
 	}
 	overlay->ov_id = err;
 
-out_err:
-	return err;
+	return 0;
 }
 
 static inline struct cfs_overlay_item *to_cfs_overlay_item(
@@ -126,7 +124,8 @@ out_err:
 	overlay->fw = NULL;
 
 	overlay->path[0] = '\0';
-	return err;
+
+	return count;
 }
 
 static ssize_t cfs_overlay_item_status_show(struct config_item *item,
@@ -273,18 +272,12 @@ static struct config_item_type of_cfs_type = {
 
 struct config_group of_cfs_overlay_group;
 
-struct config_group *of_cfs_def_groups[] = {
-	&of_cfs_overlay_group,
-	NULL
-};
-
 static struct configfs_subsystem of_cfs_subsys = {
 	.su_group = {
 		.cg_item = {
 			.ci_namebuf = "device-tree",
 			.ci_type = &of_cfs_type,
 		},
-		.default_groups = of_cfs_def_groups,
 	},
 	.su_mutex = __MUTEX_INITIALIZER(of_cfs_subsys.su_mutex),
 };
@@ -298,6 +291,8 @@ static int __init of_cfs_init(void)
 	config_group_init(&of_cfs_subsys.su_group);
 	config_group_init_type_name(&of_cfs_overlay_group, "overlays",
 			&overlays_type);
+	configfs_add_default_group(&of_cfs_overlay_group,
+			&of_cfs_subsys.su_group);
 
 	ret = configfs_register_subsystem(&of_cfs_subsys);
 	if (ret != 0) {

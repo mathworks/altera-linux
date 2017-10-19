@@ -174,6 +174,7 @@ struct hw_bank {
  * @td_pool: allocation pool for transfer descriptors
  * @gadget: device side representation for peripheral controller
  * @driver: gadget driver
+ * @resume_state: save the state of gadget suspend from
  * @hw_ep_max: total number of endpoints supported by hardware
  * @ci_hw_ep: array of endpoints
  * @ep0_dir: ep0 direction
@@ -222,6 +223,7 @@ struct ci_hdrc {
 
 	struct usb_gadget		gadget;
 	struct usb_gadget_driver	*driver;
+	enum usb_device_state		resume_state;
 	unsigned			hw_ep_max;
 	struct ci_hw_ep			ci_hw_ep[ENDPT_MAX];
 	u32				ep0_dir;
@@ -433,4 +435,7 @@ int hw_wait_reg(struct ci_hdrc *ci, enum ci_hw_regs reg, u32 mask,
 
 void ci_platform_configure(struct ci_hdrc *ci);
 
+int dbg_create_files(struct ci_hdrc *ci);
+
+void dbg_remove_files(struct ci_hdrc *ci);
 #endif	/* __DRIVERS_USB_CHIPIDEA_CI_H */

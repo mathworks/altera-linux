@@ -11,10 +11,12 @@
 
 		axi_iic_imageon: i2c@43c40000 {
 			compatible = "xlnx,axi-iic-1.02.a", "xlnx,xps-iic-2.00.a";
+			reg = <0x43c40000 0x10000>;
 			interrupt-parent = <&intc>;
 			interrupts = <0 55 4>;
-			reg = <0x43c40000 0x10000>;
-			bus-id = <1>;
+			clocks = <&clkc 15>;
+			clock-names = "pclk";
+
 			#size-cells = <0>;
 			#address-cells = <1>;
 
@@ -32,21 +34,20 @@
 
 					adv7511: adv7511@39 {
 						compatible = "adi,adv7511";
-						reg = <0x39>;
+						reg = <0x39>, <0x3f>;
+						reg-names = "primary", "edid";
 
-						adi,input-style = <0x02>;
-						adi,input-id = <0x02>;
-						adi,input-color-depth = <0x3>;
-						adi,sync-pulse = <0x03>;
-						adi,bit-justification = <0x02>;
-						adi,up-conversion = <0x00>;
-						adi,timing-generation-sequence = <0x00>;
-						adi,vsync-polarity = <0x02>;
-						adi,hsync-polarity = <0x02>;
-						adi,tdms-clock-inversion;
-						adi,clock-delay = <0x03>;
+						adi,input-depth = <8>;
+						adi,input-colorspace = "yuv422";
+						adi,input-clock = "1x";
+						adi,input-style = <1>;
+						adi,input-justification = "left";
+						adi,clock-delay = <0>;
+						adi,embedded-sync;
 
 						pd-gpios = <&pca9534 4 0>;
+
+						#sound-dai-cells = <0>;
 
 						ports {
 							#address-cells = <1>;
@@ -147,25 +148,15 @@
 			};
 		};
 
-		audio_clock: audio_clock {
-			compatible = "fixed-clock";
-			#clock-cells = <0>;
-			clock-frequency = <12288000>;
-		};
-
-		axi_spdif_tx_0: axi-spdif-tx@0x75c00000 {
+		axi_spdif_tx_0: axi-spdif-tx@75c00000 {
 			compatible = "adi,axi-spdif-tx-1.00.a";
 			reg = <0x75c00000 0x1000>;
 			dmas = <&dmac_s 0>;
 			dma-names = "tx";
 			clocks = <&clkc 15>, <&audio_clock>;
 			clock-names = "axi", "ref";
-		};
 
-		adv7511_hdmi_snd: adv7511_hdmi_snd {
-			compatible = "adv7511-hdmi-snd";
-			audio-codec = <&adv7511>;
-			cpu-dai = <&axi_spdif_tx_0>;
+			#sound-dai-cells = <0>;
 		};
 
 		axi_hdmi_rx_core: axi-hdmi-rx@43100000 {
@@ -195,6 +186,33 @@
 			dma-channel {
 				adi,buswidth = <64>;
 				adi,type = <0>;
+			};
+		};
+	};
+
+	audio_clock: audio_clock {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <12288000>;
+	};
+
+	adv7511_hdmi_snd {
+		compatible = "simple-audio-card";
+		simple-audio-card,name = "HDMI monitor";
+		simple-audio-card,widgets =
+			"Speaker", "Speaker";
+		simple-audio-card,routing =
+			"Speaker", "TX";
+
+		simple-audio-card,dai-link@0 {
+			format = "spdif";
+			cpu {
+				sound-dai = <&axi_spdif_tx_0>;
+				frame-master;
+				bitclock-master;
+			};
+			codec {
+				sound-dai = <&adv7511>;
 			};
 		};
 	};
