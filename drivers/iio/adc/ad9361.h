@@ -3344,6 +3344,9 @@ struct ad9361_rf_phy {
 	u8			cached_synth_pd[2];
 	int			tx_quad_lpf_tia_match;
 	int			current_table;
+	int			rx_sampl_freq_avail[3];
+	int			tx_sampl_freq_avail[3];
+	int 			rx_gain_avail[3];
 
 	bool 			ensm_pin_ctl_en;
 
@@ -3403,6 +3406,8 @@ int ad9361_bist_prbs(struct ad9361_rf_phy *phy, enum ad9361_bist_mode mode);
 int ad9361_find_opt(u8 *field, u32 size, u32 *ret_start);
 int ad9361_set_ensm_mode(struct ad9361_rf_phy *phy, bool fdd, bool pinctrl);
 void ad9361_ensm_force_state(struct ad9361_rf_phy *phy, u8 ensm_state);
+u8 ad9361_ensm_get_state(struct ad9361_rf_phy *phy);
+void ad9361_ensm_restore_state(struct ad9361_rf_phy *phy, u8 ensm_state);
 void ad9361_ensm_restore_prev_state(struct ad9361_rf_phy *phy);
 int ad9361_set_trx_clock_chain_freq(struct ad9361_rf_phy *phy,
 					  unsigned long freq);
