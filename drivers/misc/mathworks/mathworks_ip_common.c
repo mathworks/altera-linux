@@ -477,7 +477,7 @@ struct mathworks_ip_info *devm_mathworks_ip_of_init(
 	ipDev->mem = platform_get_resource(pdev, IORESOURCE_MEM,0);
 	if(ipDev->mem)
 	{
-		dev_info(&pdev->dev, "Dev memory resource found at %p %08lX. \n",
+		dev_info(&pdev->dev, "Dev memory resource found at %px %08lX. \n",
 			 (void *)((uintptr_t)ipDev->mem->start),
 			 (unsigned long)resource_size(ipDev->mem));
 		ipDev->mem  = devm_request_mem_region(&pdev->dev, ipDev->mem->start, resource_size(ipDev->mem), pdev->name);
