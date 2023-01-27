@@ -12,18 +12,20 @@
 
 struct iio_dev;
 struct iio_chan_spec;
+struct iio_buffer;
 struct device;
-struct device_node;
 
 /**
  * struct iio_channel - everything needed for a consumer to use a channel
  * @indio_dev:		Device on which the channel exists.
  * @channel:		Full description of the channel.
+ * @channel_index:	Offset of the channel into the devices channel array.
  * @data:		Data about the channel used by consumer.
  */
 struct iio_channel {
 	struct iio_dev *indio_dev;
 	const struct iio_chan_spec *channel;
+	unsigned int channel_index;
 	void *data;
 };
 
@@ -97,41 +99,6 @@ void iio_channel_release_all(struct iio_channel *chan);
  * unbounded.
  */
 struct iio_channel *devm_iio_channel_get_all(struct device *dev);
-
-/**
- * of_iio_channel_get_by_name() - get description of all that is needed to access channel.
- * @np:			Pointer to consumer device tree node
- * @consumer_channel:	Unique name to identify the channel on the consumer
- *			side. This typically describes the channels use within
- *			the consumer. E.g. 'battery_voltage'
- */
-#ifdef CONFIG_OF
-struct iio_channel *of_iio_channel_get_by_name(struct device_node *np, const char *name);
-#else
-static inline struct iio_channel *
-of_iio_channel_get_by_name(struct device_node *np, const char *name)
-{
-	return NULL;
-}
-#endif
-
-/**
- * devm_of_iio_channel_get_by_name() - Resource managed version of of_iio_channel_get_by_name().
- * @dev:		Pointer to consumer device.
- * @np:			Pointer to consumer device tree node
- * @consumer_channel:	Unique name to identify the channel on the consumer
- *			side. This typically describes the channels use within
- *			the consumer. E.g. 'battery_voltage'
- *
- * Returns a pointer to negative errno if it is not able to get the iio channel
- * otherwise returns valid pointer for iio channel.
- *
- * The allocated iio channel is automatically released when the device is
- * unbound.
- */
-struct iio_channel *devm_of_iio_channel_get_by_name(struct device *dev,
-						    struct device_node *np,
-						    const char *consumer_channel);
 
 struct iio_cb_buffer;
 /**
@@ -240,21 +207,6 @@ int iio_read_channel_average_raw(struct iio_channel *chan, int *val);
  * do the appropriate transformation.
  */
 int iio_read_channel_processed(struct iio_channel *chan, int *val);
-
-/**
- * iio_read_channel_processed_scale() - read and scale a processed value
- * @chan:		The channel being queried.
- * @val:		Value read back.
- * @scale:		Scale factor to apply during the conversion
- *
- * Returns an error code or 0.
- *
- * This function will read a processed value from a channel. This will work
- * like @iio_read_channel_processed() but also scale with an additional
- * scale factor while attempting to minimize any precision loss.
- */
-int iio_read_channel_processed_scale(struct iio_channel *chan, int *val,
-				     unsigned int scale);
 
 /**
  * iio_write_channel_attribute() - Write values to the device attribute.
@@ -392,6 +344,15 @@ int iio_read_channel_scale(struct iio_channel *chan, int *val,
  */
 int iio_convert_raw_to_processed(struct iio_channel *chan, int raw,
 	int *processed, unsigned int scale);
+
+void iio_buffer_channel_enable(struct iio_buffer *buffer,
+	const struct iio_channel *chan);
+void iio_buffer_channel_disable(struct iio_buffer *buffer,
+	const struct iio_channel *chan);
+
+int iio_buffer_alloc_scanmask(struct iio_buffer *buffer,
+	struct iio_dev *indio_dev);
+void iio_buffer_free_scanmask(struct iio_buffer *buffer);
 
 /**
  * iio_get_channel_ext_info_count() - get number of ext_info attributes

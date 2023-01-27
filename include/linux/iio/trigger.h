@@ -21,7 +21,7 @@ struct iio_trigger;
 /**
  * struct iio_trigger_ops - operations structure for an iio_trigger.
  * @set_trigger_state:	switch on/off the trigger on demand
- * @reenable:		function to reenable the trigger when the
+ * @try_reenable:	function to reenable the trigger when the
  *			use count is zero (may be NULL)
  * @validate_device:	function to validate the device when the
  *			current trigger gets changed.
@@ -31,7 +31,7 @@ struct iio_trigger;
  **/
 struct iio_trigger_ops {
 	int (*set_trigger_state)(struct iio_trigger *trig, bool state);
-	void (*reenable)(struct iio_trigger *trig);
+	int (*try_reenable)(struct iio_trigger *trig);
 	int (*validate_device)(struct iio_trigger *trig,
 			       struct iio_dev *indio_dev);
 };
@@ -55,7 +55,6 @@ struct iio_trigger_ops {
  * @attached_own_device:[INTERN] if we are using our own device as trigger,
  *			i.e. if we registered a poll function to the same
  *			device as the one providing the trigger.
- * @reenable_work:	[INTERN] work item used to ensure reenable can sleep.
  **/
 struct iio_trigger {
 	const struct iio_trigger_ops	*ops;
@@ -75,7 +74,6 @@ struct iio_trigger {
 	unsigned long pool[BITS_TO_LONGS(CONFIG_IIO_CONSUMERS_PER_TRIGGER)];
 	struct mutex			pool_lock;
 	bool				attached_own_device;
-	struct work_struct		reenable_work;
 };
 
 
@@ -99,7 +97,7 @@ static inline struct iio_trigger *iio_trigger_get(struct iio_trigger *trig)
 }
 
 /**
- * iio_trigger_set_drvdata() - Set trigger driver data
+ * iio_device_set_drvdata() - Set trigger driver data
  * @trig: IIO trigger structure
  * @data: Driver specific data
  *
@@ -163,8 +161,7 @@ void iio_trigger_poll_chained(struct iio_trigger *trig);
 
 irqreturn_t iio_trigger_generic_data_rdy_poll(int irq, void *private);
 
-__printf(2, 3)
-struct iio_trigger *iio_trigger_alloc(struct device *parent, const char *fmt, ...);
+__printf(1, 2) struct iio_trigger *iio_trigger_alloc(const char *fmt, ...);
 void iio_trigger_free(struct iio_trigger *trig);
 
 /**

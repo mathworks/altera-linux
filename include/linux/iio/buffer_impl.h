@@ -6,10 +6,36 @@
 
 #ifdef CONFIG_IIO_BUFFER
 
-#include <uapi/linux/iio/buffer.h>
-
 struct iio_dev;
 struct iio_buffer;
+
+#define IIO_BLOCK_ALLOC_IOCTL	_IOWR('i', 0xa0, struct iio_buffer_block_alloc_req)
+#define IIO_BLOCK_FREE_IOCTL	_IO('i', 0xa1)
+#define IIO_BLOCK_QUERY_IOCTL	_IOWR('i', 0xa2, struct iio_buffer_block)
+#define IIO_BLOCK_ENQUEUE_IOCTL	_IOWR('i', 0xa3, struct iio_buffer_block)
+#define IIO_BLOCK_DEQUEUE_IOCTL	_IOWR('i', 0xa4, struct iio_buffer_block)
+
+struct iio_buffer_block_alloc_req {
+	__u32 type;
+	__u32 size;
+	__u32 count;
+	__u32 id;
+};
+
+#define IIO_BUFFER_BLOCK_FLAG_TIMESTAMP_VALID (1 << 0)
+#define IIO_BUFFER_BLOCK_FLAG_CYCLIC (1 << 1)
+
+struct iio_buffer_block {
+	__u32 id;
+	__u32 size;
+	__u32 bytes_used;
+	__u32 type;
+	__u32 flags;
+	union {
+		__u32 offset;
+	} data;
+	__u64 timestamp;
+};
 
 /**
  * INDIO_BUFFER_FLAG_FIXED_WATERMARK - Watermark level of the buffer can not be
@@ -49,6 +75,10 @@ struct iio_buffer_access_funcs {
 	int (*store_to)(struct iio_buffer *buffer, const void *data);
 	int (*read)(struct iio_buffer *buffer, size_t n, char __user *buf);
 	size_t (*data_available)(struct iio_buffer *buffer);
+	int (*remove_from)(struct iio_buffer *buffer, void *data);
+	int (*write)(struct iio_buffer *buffer, size_t n,
+		const char __user *buf);
+	bool (*space_available)(struct iio_buffer *buffer);
 
 	int (*request_update)(struct iio_buffer *buffer);
 
@@ -59,6 +89,18 @@ struct iio_buffer_access_funcs {
 	int (*disable)(struct iio_buffer *buffer, struct iio_dev *indio_dev);
 
 	void (*release)(struct iio_buffer *buffer);
+
+	int (*alloc_blocks)(struct iio_buffer *buffer,
+		struct iio_buffer_block_alloc_req *req);
+	int (*free_blocks)(struct iio_buffer *buffer);
+	int (*enqueue_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*dequeue_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*query_block)(struct iio_buffer *buffer,
+		struct iio_buffer_block *block);
+	int (*mmap)(struct iio_buffer *buffer,
+		struct vm_area_struct *vma);
 
 	unsigned int modes;
 	unsigned int flags;
@@ -74,9 +116,6 @@ struct iio_buffer {
 	/** @length: Number of datums in buffer. */
 	unsigned int length;
 
-	/** @flags: File ops flags including busy flag. */
-	unsigned long flags;
-
 	/**  @bytes_per_datum: Size of individual datum including timestamp. */
 	size_t bytes_per_datum;
 
@@ -88,6 +127,9 @@ struct iio_buffer {
 
 	/** @scan_mask: Bitmask used in masking scan mode elements. */
 	long *scan_mask;
+
+	/** @channel_mask: Bitmask used in masking scan mode elements (per channel). */
+	long *channel_mask;
 
 	/** @demux_list: List of operations required to demux the scan. */
 	struct list_head demux_list;
@@ -102,23 +144,23 @@ struct iio_buffer {
 	/* @scan_timestamp: Does the scan mode include a timestamp. */
 	bool scan_timestamp;
 
-	/* @buffer_attr_list: List of buffer attributes. */
-	struct list_head buffer_attr_list;
+	/* @scan_el_dev_attr_list: List of scan element related attributes. */
+	struct list_head scan_el_dev_attr_list;
+
+	/* @buffer_group: Attributes of the buffer group. */
+	struct attribute_group buffer_group;
 
 	/*
-	 * @buffer_group: Attributes of the new buffer group.
-	 * Includes scan elements attributes.
+	 * @scan_el_group: Attribute group for those attributes not
+	 * created from the iio_chan_info array.
 	 */
-	struct attribute_group buffer_group;
+	struct attribute_group scan_el_group;
 
 	/* @attrs: Standard attributes of the buffer. */
 	const struct attribute **attrs;
 
 	/* @demux_bounce: Buffer for doing gather from incoming scan. */
 	void *demux_bounce;
-
-	/* @attached_entry: Entry in the devices list of buffers attached by the driver. */
-	struct list_head attached_entry;
 
 	/* @buffer_list: Entry in the devices list of current buffers. */
 	struct list_head buffer_list;

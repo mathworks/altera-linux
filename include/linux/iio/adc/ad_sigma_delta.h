@@ -15,6 +15,8 @@ enum ad_sigma_delta_mode {
 	AD_SD_MODE_POWERDOWN = 3,
 };
 
+#define AD_SD_SLOT_DISABLE ((unsigned int)-1)
+
 /**
  * struct ad_sigma_delta_calib_data - Calibration data for Sigma Delta devices
  * @mode: Calibration mode.
@@ -26,12 +28,13 @@ struct ad_sd_calib_data {
 };
 
 struct ad_sigma_delta;
-struct device;
 struct iio_dev;
 
 /**
  * struct ad_sigma_delta_info - Sigma Delta driver specific callbacks and options
  * @set_channel: Will be called to select the current channel, may be NULL.
+ * @prepare_channel: Will be called to prepare and configure a channel, may be
+ *                   NULL.
  * @set_mode: Will be called to select the current mode, may be NULL.
  * @postprocess_sample: Is called for each sampled data word, can be used to
  *		modify or drop the sample data, it, may be NULL.
@@ -40,11 +43,15 @@ struct iio_dev;
  * @addr_shift: Shift of the register address in the communications register.
  * @read_mask: Mask for the communications register having the read bit set.
  * @data_reg: Address of the data register, if 0 the default address of 0x3 will
+ * @irq_flags: flags for the interrupt used by the triggered buffer
  *   be used.
  * @irq_flags: flags for the interrupt used by the triggered buffer
  */
 struct ad_sigma_delta_info {
-	int (*set_channel)(struct ad_sigma_delta *, unsigned int channel);
+	int (*set_channel)(struct ad_sigma_delta *, unsigned int slot,
+		unsigned int channel);
+	int (*prepare_channel)(struct ad_sigma_delta *, unsigned int slot,
+		const struct iio_chan_spec *);
 	int (*set_mode)(struct ad_sigma_delta *, enum ad_sigma_delta_mode mode);
 	int (*postprocess_sample)(struct ad_sigma_delta *, unsigned int raw_sample);
 	bool has_registers;
@@ -58,6 +65,7 @@ struct ad_sigma_delta_info {
  * struct ad_sigma_delta - Sigma Delta device struct
  * @spi: The spi device associated with the Sigma Delta device.
  * @trig: The IIO trigger associated with the Sigma Delta device.
+ * @num_slots: Number of sequencer slots
  *
  * Most of the fields are private to the sigma delta library code and should not
  * be accessed by individual drivers.
@@ -65,6 +73,8 @@ struct ad_sigma_delta_info {
 struct ad_sigma_delta {
 	struct spi_device	*spi;
 	struct iio_trigger	*trig;
+
+	unsigned int		num_slots;
 
 /* private: */
 	struct completion	completion;
@@ -76,23 +86,34 @@ struct ad_sigma_delta {
 	uint8_t			comm;
 
 	const struct ad_sigma_delta_info *info;
+	unsigned int		active_slots;
+	unsigned int		current_slot;
+
+	struct spi_message	spi_msg;
+	struct spi_transfer	spi_transfer[2];
+	uint8_t			*buf_data;
 
 	/*
 	 * DMA (thus cache coherency maintenance) requires the
 	 * transfer buffers to live in their own cache lines.
-	 * 'tx_buf' is up to 32 bits.
-	 * 'rx_buf' is up to 32 bits per sample + 64 bit timestamp,
-	 * rounded to 16 bytes to take into account padding.
 	 */
-	uint8_t				tx_buf[4] ____cacheline_aligned;
-	uint8_t				rx_buf[16] __aligned(8);
+	uint8_t				data[4] ____cacheline_aligned;
 };
 
+static inline int ad_sigma_delta_prepare_channel(struct ad_sigma_delta *sd,
+	unsigned int slot, const struct iio_chan_spec *chan)
+{
+	if (sd->info->prepare_channel)
+		return sd->info->prepare_channel(sd, slot, chan);
+
+	return 0;
+}
+
 static inline int ad_sigma_delta_set_channel(struct ad_sigma_delta *sd,
-	unsigned int channel)
+	unsigned int slot, unsigned int channel)
 {
 	if (sd->info->set_channel)
-		return sd->info->set_channel(sd, channel);
+		return sd->info->set_channel(sd, slot, channel);
 
 	return 0;
 }
@@ -133,7 +154,8 @@ int ad_sd_calibrate_all(struct ad_sigma_delta *sigma_delta,
 int ad_sd_init(struct ad_sigma_delta *sigma_delta, struct iio_dev *indio_dev,
 	struct spi_device *spi, const struct ad_sigma_delta_info *info);
 
-int devm_ad_sd_setup_buffer_and_trigger(struct device *dev, struct iio_dev *indio_dev);
+int ad_sd_setup_buffer_and_trigger(struct iio_dev *indio_dev);
+void ad_sd_cleanup_buffer_and_trigger(struct iio_dev *indio_dev);
 
 int ad_sd_validate_trigger(struct iio_dev *indio_dev, struct iio_trigger *trig);
 

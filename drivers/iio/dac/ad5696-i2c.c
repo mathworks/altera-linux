@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
- * AD5338R, AD5671R, AD5673R, AD5675R, AD5677R, AD5691R, AD5692R, AD5693,
+ * AD5671R, AD5673R, AD5675R, AD5677R, AD5691R, AD5692R, AD5693,
  * AD5693R, AD5694, AD5694R, AD5695R, AD5696, AD5696R
  * Digital to analog converters driver
  *
@@ -31,7 +31,7 @@ static int ad5686_i2c_read(struct ad5686_state *st, u8 addr)
 	};
 	int ret;
 
-	st->data[0].d32 = cpu_to_be32(AD5686_CMD(AD5686_CMD_NOOP) |
+	st->data[0].d32 = cpu_to_be32(AD5686_CMD(AD5686_CMD_READBACK_ENABLE) |
 				      AD5686_ADDR(addr) |
 				      0x00);
 
@@ -62,7 +62,7 @@ static int ad5686_i2c_probe(struct i2c_client *i2c,
 			    const struct i2c_device_id *id)
 {
 	return ad5686_probe(&i2c->dev, id->driver_data, id->name,
-			    ad5686_i2c_write, ad5686_i2c_read);
+			    ad5686_i2c_write, ad5686_i2c_read, i2c->irq);
 }
 
 static int ad5686_i2c_remove(struct i2c_client *i2c)
@@ -72,7 +72,6 @@ static int ad5686_i2c_remove(struct i2c_client *i2c)
 
 static const struct i2c_device_id ad5686_i2c_id[] = {
 	{"ad5311r", ID_AD5311R},
-	{"ad5338r", ID_AD5338R},
 	{"ad5671r", ID_AD5671R},
 	{"ad5673r", ID_AD5673R},
 	{"ad5675r", ID_AD5675R},
@@ -90,28 +89,9 @@ static const struct i2c_device_id ad5686_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, ad5686_i2c_id);
 
-static const struct of_device_id ad5686_of_match[] = {
-	{ .compatible = "adi,ad5311r" },
-	{ .compatible = "adi,ad5338r" },
-	{ .compatible = "adi,ad5671r" },
-	{ .compatible = "adi,ad5675r" },
-	{ .compatible = "adi,ad5691r" },
-	{ .compatible = "adi,ad5692r" },
-	{ .compatible = "adi,ad5693" },
-	{ .compatible = "adi,ad5693r" },
-	{ .compatible = "adi,ad5694" },
-	{ .compatible = "adi,ad5694r" },
-	{ .compatible = "adi,ad5695r" },
-	{ .compatible = "adi,ad5696" },
-	{ .compatible = "adi,ad5696r" },
-	{}
-};
-MODULE_DEVICE_TABLE(of, ad5686_of_match);
-
 static struct i2c_driver ad5686_i2c_driver = {
 	.driver = {
 		.name = "ad5696",
-		.of_match_table = ad5686_of_match,
 	},
 	.probe = ad5686_i2c_probe,
 	.remove = ad5686_i2c_remove,

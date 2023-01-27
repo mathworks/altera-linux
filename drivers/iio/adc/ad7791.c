@@ -17,6 +17,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/module.h>
+#include <linux/of.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -211,12 +212,19 @@ static const int ad7791_sample_freq_avail[8][2] = {
 	[AD7791_FILTER_RATE_9_5] =  { 9,   500000 },
 };
 
+static struct ad7791_platform_data ad7791_default_pdata = {
+	.buffered = true,
+	.burnout_current = false,
+	.unipolar = false,
+};
+
 static struct ad7791_state *ad_sigma_delta_to_ad7791(struct ad_sigma_delta *sd)
 {
 	return container_of(sd, struct ad7791_state, sd);
 }
 
-static int ad7791_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
+static int ad7791_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
+	unsigned int channel)
 {
 	ad_sd_set_comm(sd, channel);
 
@@ -253,7 +261,7 @@ static const struct ad_sigma_delta_info ad7791_sigma_delta_info = {
 	.has_registers = true,
 	.addr_shift = 4,
 	.read_mask = BIT(3),
-	.irq_flags = IRQF_TRIGGER_LOW,
+	.irq_flags = IRQF_TRIGGER_FALLING
 };
 
 static int ad7791_read_raw(struct iio_dev *indio_dev,
@@ -373,12 +381,20 @@ static const struct iio_info ad7791_no_filter_info = {
 static int ad7791_setup(struct ad7791_state *st,
 			struct ad7791_platform_data *pdata)
 {
+	int ret;
+
 	/* Set to poweron-reset default values */
 	st->mode = AD7791_MODE_BUFFER;
 	st->filter = AD7791_FILTER_RATE_16_6;
 
 	if (!pdata)
 		return 0;
+	/* reset the serial interface */
+	ret = -1;
+	ret = spi_write(st->sd.spi, (u8 *)&ret, sizeof(ret));
+	if (ret < 0)
+		return ret;
+	usleep_range(500, 2000); /* Wait for at least 500us */
 
 	if ((st->info->flags & AD7791_FLAG_HAS_BUFFER) && !pdata->buffered)
 		st->mode &= ~AD7791_MODE_BUFFER;
@@ -394,17 +410,48 @@ static int ad7791_setup(struct ad7791_state *st,
 		st->mode);
 }
 
-static void ad7791_reg_disable(void *reg)
+#ifdef CONFIG_OF
+static struct ad7791_platform_data *ad7791_parse_dt(struct device *dev)
 {
-	regulator_disable(reg);
+	struct device_node *np = dev->of_node;
+	struct ad7791_platform_data *pdata;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata) {
+		dev_err(dev, "could not allocate memory for platform data\n");
+		return NULL;
+	}
+
+	pdata->buffered = of_property_read_bool(np, "adi,buffered-mode-enable");
+	pdata->burnout_current = of_property_read_bool(np, "adi,burnout-current-enable");
+	pdata->unipolar = of_property_read_bool(np, "adi,unipolar-mode-enable");
+
+	return pdata;
 }
+#else
+static
+struct ad7791_platform_data *ad7791_parse_dt(struct device *dev)
+{
+	return NULL;
+}
+#endif
 
 static int ad7791_probe(struct spi_device *spi)
 {
-	struct ad7791_platform_data *pdata = spi->dev.platform_data;
+	struct ad7791_platform_data *pdata;
 	struct iio_dev *indio_dev;
 	struct ad7791_state *st;
 	int ret;
+
+	if (spi->dev.of_node)
+		pdata = ad7791_parse_dt(&spi->dev);
+	else
+		pdata = spi->dev.platform_data;
+
+	if (!pdata) {
+		dev_err(&spi->dev, "no platform data? using default\n");
+		pdata = &ad7791_default_pdata;
+	}
 
 	if (!spi->irq) {
 		dev_err(&spi->dev, "Missing IRQ.\n");
@@ -425,12 +472,10 @@ static int ad7791_probe(struct spi_device *spi)
 	if (ret)
 		return ret;
 
-	ret = devm_add_action_or_reset(&spi->dev, ad7791_reg_disable, st->reg);
-	if (ret)
-		return ret;
-
 	st->info = &ad7791_chip_infos[spi_get_device_id(spi)->driver_data];
 	ad_sd_init(&st->sd, indio_dev, spi, &ad7791_sigma_delta_info);
+
+	spi_set_drvdata(spi, indio_dev);
 
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
@@ -441,15 +486,39 @@ static int ad7791_probe(struct spi_device *spi)
 	else
 		indio_dev->info = &ad7791_no_filter_info;
 
-	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
+	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
 	if (ret)
-		return ret;
+		goto error_disable_reg;
 
 	ret = ad7791_setup(st, pdata);
 	if (ret)
-		return ret;
+		goto error_remove_trigger;
 
-	return devm_iio_device_register(&spi->dev, indio_dev);
+	ret = iio_device_register(indio_dev);
+	if (ret)
+		goto error_remove_trigger;
+
+	return 0;
+
+error_remove_trigger:
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+error_disable_reg:
+	regulator_disable(st->reg);
+
+	return ret;
+}
+
+static int ad7791_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct ad7791_state *st = iio_priv(indio_dev);
+
+	iio_device_unregister(indio_dev);
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+
+	regulator_disable(st->reg);
+
+	return 0;
 }
 
 static const struct spi_device_id ad7791_spi_ids[] = {
@@ -467,6 +536,7 @@ static struct spi_driver ad7791_driver = {
 		.name	= "ad7791",
 	},
 	.probe		= ad7791_probe,
+	.remove		= ad7791_remove,
 	.id_table	= ad7791_spi_ids,
 };
 module_spi_driver(ad7791_driver);

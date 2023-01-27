@@ -16,6 +16,7 @@
 #include <linux/sched.h>
 #include <linux/delay.h>
 #include <linux/module.h>
+#include <linux/of.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/sysfs.h>
@@ -140,6 +141,18 @@
 #define AD7793_FLAG_HAS_GAIN		BIT(4)
 #define AD7793_FLAG_HAS_BUFFER		BIT(5)
 
+static struct ad7793_platform_data ad7793_default_pdata = {
+	.clock_src = AD7793_CLK_SRC_INT,
+	.burnout_current = false,
+	.boost_enable = false,
+	.buffered = true,
+	.unipolar = true,
+	.refsel = AD7793_REFSEL_INTERNAL,
+	.bias_voltage = AD7793_BIAS_VOLTAGE_DISABLED,
+	.exitation_current = AD7793_IX_DISABLED,
+	.current_source_direction = AD7793_IEXEC1_IOUT1_IEXEC2_IOUT2
+};
+
 struct ad7793_chip_info {
 	unsigned int id;
 	const struct iio_chan_spec *channels;
@@ -179,7 +192,8 @@ static struct ad7793_state *ad_sigma_delta_to_ad7793(struct ad_sigma_delta *sd)
 	return container_of(sd, struct ad7793_state, sd);
 }
 
-static int ad7793_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
+static int ad7793_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
+	unsigned int channel)
 {
 	struct ad7793_state *st = ad_sigma_delta_to_ad7793(sd);
 
@@ -206,7 +220,7 @@ static const struct ad_sigma_delta_info ad7793_sigma_delta_info = {
 	.has_registers = true,
 	.addr_shift = 3,
 	.read_mask = BIT(6),
-	.irq_flags = IRQF_TRIGGER_FALLING,
+	.irq_flags = IRQF_TRIGGER_FALLING
 };
 
 static const struct ad_sd_calib_data ad7793_calib_arr[6] = {
@@ -279,7 +293,6 @@ static int ad7793_setup(struct iio_dev *indio_dev,
 	id &= AD7793_ID_MASK;
 
 	if (id != st->chip_info->id) {
-		ret = -ENODEV;
 		dev_err(&st->sd.spi->dev, "device ID query failed\n");
 		goto out;
 	}
@@ -310,7 +323,7 @@ static int ad7793_setup(struct iio_dev *indio_dev,
 	if (ret)
 		goto out;
 
-	ret = ad7793_set_channel(&st->sd, 0);
+	ret = ad7793_set_channel(&st->sd, 0, 0);
 	if (ret)
 		goto out;
 
@@ -769,21 +782,64 @@ static const struct ad7793_chip_info ad7793_chip_info_tbl[] = {
 	},
 };
 
-static void ad7793_reg_disable(void *reg)
+#ifdef CONFIG_OF
+static struct ad7793_platform_data *ad7793_parse_dt(struct device *dev)
 {
-	regulator_disable(reg);
+	struct device_node *np = dev->of_node;
+	struct ad7793_platform_data *pdata;
+	u32 tmp;
+
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
+	if (!pdata) {
+		dev_err(dev, "could not allocate memory for platform data\n");
+		return NULL;
+	}
+
+	tmp = AD7793_CLK_SRC_INT;
+	of_property_read_u32(np, "adi,clock-source", &tmp);
+	pdata->clock_src = tmp;
+	pdata->burnout_current = of_property_read_bool(np, "adi,burnout-current-enable");
+	pdata->boost_enable = of_property_read_bool(np, "adi,boost-enable");
+	pdata->buffered = of_property_read_bool(np, "adi,buffered-mode-enable");
+	pdata->unipolar = of_property_read_bool(np, "adi,unipolar-mode-enable");
+	tmp = AD7793_REFSEL_INTERNAL;
+	of_property_read_u32(np, "adi,reference-select", &tmp);
+	pdata->refsel = tmp;
+	tmp = AD7793_BIAS_VOLTAGE_DISABLED;
+	of_property_read_u32(np, "adi,bias-voltage", &tmp);
+	pdata->bias_voltage = tmp;
+	tmp = AD7793_IX_DISABLED;
+	of_property_read_u32(np, "adi,exitation-current", &tmp);
+	pdata->exitation_current = tmp;
+	tmp = AD7793_IEXEC1_IOUT1_IEXEC2_IOUT2;
+	of_property_read_u32(np, "adi,current-source-direction", &tmp);
+	pdata->current_source_direction = tmp;
+
+	return pdata;
 }
+#else
+static
+struct ad7793_platform_data *ad7793_parse_dt(struct device *dev)
+{
+	return NULL;
+}
+#endif
 
 static int ad7793_probe(struct spi_device *spi)
 {
-	const struct ad7793_platform_data *pdata = spi->dev.platform_data;
+	const struct ad7793_platform_data *pdata;
 	struct ad7793_state *st;
 	struct iio_dev *indio_dev;
 	int ret, vref_mv = 0;
 
+	if (spi->dev.of_node)
+		pdata = ad7793_parse_dt(&spi->dev);
+	else
+		pdata = spi->dev.platform_data;
+
 	if (!pdata) {
-		dev_err(&spi->dev, "no platform data?\n");
-		return -ENODEV;
+		dev_err(&spi->dev, "no platform data? using default\n");
+		pdata = &ad7793_default_pdata;
 	}
 
 	if (!spi->irq) {
@@ -808,13 +864,11 @@ static int ad7793_probe(struct spi_device *spi)
 		if (ret)
 			return ret;
 
-		ret = devm_add_action_or_reset(&spi->dev, ad7793_reg_disable, st->reg);
-		if (ret)
-			return ret;
-
 		vref_mv = regulator_get_voltage(st->reg);
-		if (vref_mv < 0)
-			return vref_mv;
+		if (vref_mv < 0) {
+			ret = vref_mv;
+			goto error_disable_reg;
+		}
 
 		vref_mv /= 1000;
 	} else {
@@ -824,21 +878,50 @@ static int ad7793_probe(struct spi_device *spi)
 	st->chip_info =
 		&ad7793_chip_info_tbl[spi_get_device_id(spi)->driver_data];
 
+	spi_set_drvdata(spi, indio_dev);
+
 	indio_dev->name = spi_get_device_id(spi)->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
 	indio_dev->channels = st->chip_info->channels;
 	indio_dev->num_channels = st->chip_info->num_channels;
 	indio_dev->info = st->chip_info->iio_info;
 
-	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
+	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
 	if (ret)
-		return ret;
+		goto error_disable_reg;
 
 	ret = ad7793_setup(indio_dev, pdata, vref_mv);
 	if (ret)
-		return ret;
+		goto error_remove_trigger;
 
-	return devm_iio_device_register(&spi->dev, indio_dev);
+	ret = iio_device_register(indio_dev);
+	if (ret)
+		goto error_remove_trigger;
+
+	return 0;
+
+error_remove_trigger:
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+error_disable_reg:
+	if (pdata->refsel != AD7793_REFSEL_INTERNAL)
+		regulator_disable(st->reg);
+
+	return ret;
+}
+
+static int ad7793_remove(struct spi_device *spi)
+{
+	const struct ad7793_platform_data *pdata = spi->dev.platform_data;
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct ad7793_state *st = iio_priv(indio_dev);
+
+	iio_device_unregister(indio_dev);
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+
+	if (pdata->refsel != AD7793_REFSEL_INTERNAL)
+		regulator_disable(st->reg);
+
+	return 0;
 }
 
 static const struct spi_device_id ad7793_id[] = {
@@ -860,6 +943,7 @@ static struct spi_driver ad7793_driver = {
 		.name	= "ad7793",
 	},
 	.probe		= ad7793_probe,
+	.remove		= ad7793_remove,
 	.id_table	= ad7793_id,
 };
 module_spi_driver(ad7793_driver);

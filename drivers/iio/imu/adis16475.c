@@ -14,10 +14,10 @@
 #include <linux/iio/buffer.h>
 #include <linux/iio/iio.h>
 #include <linux/iio/imu/adis.h>
+#include <linux/iio/sysfs.h>
 #include <linux/iio/trigger_consumer.h>
 #include <linux/irq.h>
 #include <linux/lcm.h>
-#include <linux/math.h>
 #include <linux/module.h>
 #include <linux/mod_devicetable.h>
 #include <linux/property.h>
@@ -607,20 +607,6 @@ static const char * const adis16475_status_error_msgs[] = {
 	[ADIS16475_DIAG_STAT_CLK] = "Clock error",
 };
 
-static int adis16475_enable_irq(struct adis *adis, bool enable)
-{
-	/*
-	 * There is no way to gate the data-ready signal internally inside the
-	 * ADIS16475. We can only control it's polarity...
-	 */
-	if (enable)
-		enable_irq(adis->spi->irq);
-	else
-		disable_irq(adis->spi->irq);
-
-	return 0;
-}
-
 #define ADIS16475_DATA(_prod_id, _timeouts)				\
 {									\
 	.msc_ctrl_reg = ADIS16475_REG_MSG_CTRL,				\
@@ -641,7 +627,7 @@ static int adis16475_enable_irq(struct adis *adis, bool enable)
 		BIT(ADIS16475_DIAG_STAT_SENSOR) |			\
 		BIT(ADIS16475_DIAG_STAT_MEMORY) |			\
 		BIT(ADIS16475_DIAG_STAT_CLK),				\
-	.enable_irq = adis16475_enable_irq,				\
+	.unmasked_drdy = true,						\
 	.timeouts = (_timeouts),					\
 	.burst_reg_cmd = ADIS16475_REG_GLOB_CMD,			\
 	.burst_len = ADIS16475_BURST_MAX_DATA,				\
@@ -1255,9 +1241,6 @@ static int adis16475_config_irq_pin(struct adis16475 *st)
 		return -EINVAL;
 	}
 
-	/* We cannot mask the interrupt so ensure it's not enabled at request */
-	st->adis.irq_flag |= IRQF_NO_AUTOEN;
-
 	val = ADIS16475_MSG_CTRL_DR_POL(polarity);
 	ret = __adis_update_bits(&st->adis, ADIS16475_REG_MSG_CTRL,
 				 ADIS16475_MSG_CTRL_DR_POL_MASK, val);
@@ -1329,6 +1312,7 @@ static int adis16475_probe(struct spi_device *spi)
 		return -ENOMEM;
 
 	st = iio_priv(indio_dev);
+	spi_set_drvdata(spi, indio_dev);
 
 	st->info = device_get_match_data(&spi->dev);
 	if (!st->info)
@@ -1360,6 +1344,15 @@ static int adis16475_probe(struct spi_device *spi)
 						 adis16475_trigger_handler);
 	if (ret)
 		return ret;
+
+	/*
+	 * Note that this is not needed in upstream but we still need to have
+	 * it in our tree because the 'IRQF_NO_AUTOEN' flag is still not
+	 * present. With it, the IRQ is automatically disabled when requesting
+	 * it. As soon as we move to a kernel supporting we can drop this call
+	 * and update @adis_validate_irq_flag() accordingly.
+	 */
+	adis_enable_irq(&st->adis, false);
 
 	ret = devm_iio_device_register(&spi->dev, indio_dev);
 	if (ret)

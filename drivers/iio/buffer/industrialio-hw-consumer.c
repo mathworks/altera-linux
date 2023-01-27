@@ -41,6 +41,7 @@ static void iio_hw_buf_release(struct iio_buffer *buffer)
 {
 	struct hw_consumer_buffer *hw_buf =
 		iio_buffer_to_hw_consumer_buffer(buffer);
+	iio_buffer_free_scanmask(buffer);
 	kfree(hw_buf);
 }
 
@@ -54,6 +55,7 @@ static struct hw_consumer_buffer *iio_hw_consumer_get_buffer(
 {
 	size_t mask_size = BITS_TO_LONGS(indio_dev->masklength) * sizeof(long);
 	struct hw_consumer_buffer *buf;
+	int ret;
 
 	list_for_each_entry(buf, &hwc->buffers, head) {
 		if (buf->indio_dev == indio_dev)
@@ -69,9 +71,18 @@ static struct hw_consumer_buffer *iio_hw_consumer_get_buffer(
 	buf->buffer.scan_mask = buf->scan_mask;
 
 	iio_buffer_init(&buf->buffer);
+
+	ret = iio_buffer_alloc_scanmask(&buf->buffer, indio_dev);
+	if (ret)
+		goto err_free_buf;
+
 	list_add_tail(&buf->head, &hwc->buffers);
 
 	return buf;
+
+err_free_buf:
+	kfree(buf);
+	return NULL;
 }
 
 /**
@@ -106,7 +117,7 @@ struct iio_hw_consumer *iio_hw_consumer_alloc(struct device *dev)
 			ret = -ENOMEM;
 			goto err_put_buffers;
 		}
-		set_bit(chan->channel->scan_index, buf->buffer.scan_mask);
+		iio_buffer_channel_enable(&buf->buffer, chan);
 		chan++;
 	}
 
@@ -137,9 +148,9 @@ void iio_hw_consumer_free(struct iio_hw_consumer *hwc)
 }
 EXPORT_SYMBOL_GPL(iio_hw_consumer_free);
 
-static void devm_iio_hw_consumer_release(void *iio_hwc)
+static void devm_iio_hw_consumer_release(struct device *dev, void *res)
 {
-	iio_hw_consumer_free(iio_hwc);
+	iio_hw_consumer_free(*(struct iio_hw_consumer **)res);
 }
 
 /**
@@ -153,17 +164,20 @@ static void devm_iio_hw_consumer_release(void *iio_hwc)
  */
 struct iio_hw_consumer *devm_iio_hw_consumer_alloc(struct device *dev)
 {
-	struct iio_hw_consumer *iio_hwc;
-	int ret;
+	struct iio_hw_consumer **ptr, *iio_hwc;
+
+	ptr = devres_alloc(devm_iio_hw_consumer_release, sizeof(*ptr),
+			   GFP_KERNEL);
+	if (!ptr)
+		return NULL;
 
 	iio_hwc = iio_hw_consumer_alloc(dev);
-	if (IS_ERR(iio_hwc))
-		return iio_hwc;
-
-	ret = devm_add_action_or_reset(dev, devm_iio_hw_consumer_release,
-				       iio_hwc);
-	if (ret)
-		return ERR_PTR(ret);
+	if (IS_ERR(iio_hwc)) {
+		devres_free(ptr);
+	} else {
+		*ptr = iio_hwc;
+		devres_add(dev, ptr);
+	}
 
 	return iio_hwc;
 }

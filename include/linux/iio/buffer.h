@@ -11,7 +11,11 @@
 
 struct iio_buffer;
 
+void iio_buffer_set_attrs(struct iio_buffer *buffer,
+			 const struct attribute **attrs);
+
 int iio_push_to_buffers(struct iio_dev *indio_dev, const void *data);
+int iio_buffer_remove_sample(struct iio_buffer *buffer, u8 *data);
 
 /**
  * iio_push_to_buffers_with_timestamp() - push data and timestamp to buffers
@@ -38,10 +42,11 @@ static inline int iio_push_to_buffers_with_timestamp(struct iio_dev *indio_dev,
 	return iio_push_to_buffers(indio_dev, data);
 }
 
+
 bool iio_validate_scan_mask_onehot(struct iio_dev *indio_dev,
 				   const unsigned long *mask);
 
-int iio_device_attach_buffer(struct iio_dev *indio_dev,
-			     struct iio_buffer *buffer);
+void iio_device_attach_buffer(struct iio_dev *indio_dev,
+			      struct iio_buffer *buffer);
 
 #endif /* _IIO_BUFFER_GENERIC_H_ */

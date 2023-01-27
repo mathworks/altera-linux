@@ -100,7 +100,7 @@ static ssize_t ad5446_read_dac_powerdown(struct iio_dev *indio_dev,
 {
 	struct ad5446_state *st = iio_priv(indio_dev);
 
-	return sysfs_emit(buf, "%d\n", st->pwr_down);
+	return sprintf(buf, "%d\n", st->pwr_down);
 }
 
 static ssize_t ad5446_write_dac_powerdown(struct iio_dev *indio_dev,
@@ -178,7 +178,7 @@ static int ad5446_read_raw(struct iio_dev *indio_dev,
 
 	switch (m) {
 	case IIO_CHAN_INFO_RAW:
-		*val = st->cached_val >> chan->scan_type.shift;
+		*val = st->cached_val;
 		return IIO_VAL_INT;
 	case IIO_CHAN_INFO_SCALE:
 		*val = st->vref_mv;
@@ -457,6 +457,7 @@ static const struct spi_device_id ad5446_spi_ids[] = {
 	{"ad5512a", ID_AD5512A},
 	{"ad5541a", ID_AD5541A},
 	{"ad5542a", ID_AD5541A}, /* ad5541a and ad5542a are compatible */
+	{"ad5542", ID_AD5541A}, /* ad5541a and ad5542a are compatible */
 	{"ad5543", ID_AD5541A}, /* ad5541a and ad5543 are compatible */
 	{"ad5553", ID_AD5553},
 	{"ad5600", ID_AD5600},
@@ -489,7 +490,8 @@ static int ad5446_spi_probe(struct spi_device *spi)
 {
 	const struct spi_device_id *id = spi_get_device_id(spi);
 
-	return ad5446_probe(&spi->dev, id->name,
+	return ad5446_probe(&spi->dev, spi->dev.of_node ?
+		spi->dev.of_node->name : id->name,
 		&ad5446_spi_chip_info[id->driver_data]);
 }
 
@@ -531,15 +533,8 @@ static int ad5622_write(struct ad5446_state *st, unsigned val)
 {
 	struct i2c_client *client = to_i2c_client(st->dev);
 	__be16 data = cpu_to_be16(val);
-	int ret;
 
-	ret = i2c_master_send(client, (char *)&data, sizeof(data));
-	if (ret < 0)
-		return ret;
-	if (ret != sizeof(data))
-		return -EIO;
-
-	return 0;
+	return i2c_master_send(client, (char *)&data, sizeof(data));
 }
 
 /*

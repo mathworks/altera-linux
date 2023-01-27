@@ -22,6 +22,8 @@
 #include <linux/iio/adc/ad_sigma_delta.h>
 #include <linux/iio/sysfs.h>
 
+#define AD7124_SEQUENCER_SLOTS		16
+
 /* AD7124 registers */
 #define AD7124_COMMS			0x00
 #define AD7124_STATUS			0x00
@@ -142,8 +144,6 @@ struct ad7124_chip_info {
 };
 
 struct ad7124_channel_config {
-	bool live;
-	unsigned int cfg_slot;
 	enum ad7124_ref_sel refsel;
 	bool bipolar;
 	bool buf_positive;
@@ -153,6 +153,8 @@ struct ad7124_channel_config {
 	unsigned int odr;
 	unsigned int odr_sel_bits;
 	unsigned int filter_type;
+	bool live;
+	unsigned int cfg_slot;
 };
 
 struct ad7124_channel {
@@ -500,10 +502,24 @@ static int ad7124_prepare_read(struct ad7124_state *st, int address)
 	return ad7124_enable_channel(st, &st->channels[address]);
 }
 
-static int ad7124_set_channel(struct ad_sigma_delta *sd, unsigned int channel)
+static int ad7124_set_channel(struct ad_sigma_delta *sd, unsigned int slot,
+			      unsigned int channel)
 {
 	struct ad7124_state *st = container_of(sd, struct ad7124_state, sd);
 	int ret;
+	int i;
+
+	if (channel == AD_SD_SLOT_DISABLE) {
+		for (i = 0; i < AD7124_MAX_CHANNELS; i++) {
+			/* disable channel associated with unused slot */
+			if (st->channels[i].slot == slot)
+				return ad_sd_write_reg(&st->sd, AD7124_CHANNEL(i), 2, 0);
+		}
+
+		return 0;
+	}
+
+	st->channels[channel].slot = slot;
 
 	mutex_lock(&st->cfgs_lock);
 	ret = ad7124_prepare_read(st, channel);
@@ -669,11 +685,32 @@ static const struct attribute_group ad7124_attrs_group = {
 	.attrs = ad7124_attributes,
 };
 
+static int ad7124_update_scan_mode(struct iio_dev *indio_dev,
+				   const unsigned long *scan_mask)
+{
+	struct ad7124_state *st = iio_priv(indio_dev);
+	bool bit_set;
+	int ret;
+	int i;
+
+	for (i = 0; i < st->num_channels; i++) {
+		bit_set = test_bit(i, scan_mask);
+		ret = ad7124_spi_write_mask(st, AD7124_CHANNEL(i),
+					    AD7124_CHANNEL_EN_MSK,
+					    AD7124_CHANNEL_EN(bit_set),
+					    2);
+		if (ret < 0)
+			return ret;
+	}
+	return 0;
+}
+
 static const struct iio_info ad7124_info = {
 	.read_raw = ad7124_read_raw,
 	.write_raw = ad7124_write_raw,
 	.debugfs_reg_access = &ad7124_reg_access,
 	.validate_trigger = ad_sd_validate_trigger,
+	.update_scan_mode = ad7124_update_scan_mode,
 	.attrs = &ad7124_attrs_group,
 };
 
@@ -770,13 +807,6 @@ static int ad7124_of_parse_channel_config(struct iio_dev *indio_dev,
 		if (ret)
 			goto err;
 
-		if (channel >= indio_dev->num_channels) {
-			dev_err(indio_dev->dev.parent,
-				"Channel index >= number of channels\n");
-			ret = -EINVAL;
-			goto err;
-		}
-
 		ret = of_property_read_u32_array(child, "diff-channels",
 						 ain, 2);
 		if (ret)
@@ -856,16 +886,6 @@ static int ad7124_setup(struct ad7124_state *st)
 	return ret;
 }
 
-static void ad7124_reg_disable(void *r)
-{
-	regulator_disable(r);
-}
-
-static void ad7124_clk_disable(void *c)
-{
-	clk_disable_unprepare(c);
-}
-
 static int ad7124_probe(struct spi_device *spi)
 {
 	const struct ad7124_chip_info *info;
@@ -886,6 +906,8 @@ static int ad7124_probe(struct spi_device *spi)
 	st->chip_info = info;
 
 	ad_sd_init(&st->sd, indio_dev, spi, &ad7124_sigma_delta_info);
+	st->sd.num_slots = AD7124_SEQUENCER_SLOTS;
+	spi_set_drvdata(spi, indio_dev);
 
 	indio_dev->name = st->chip_info->name;
 	indio_dev->modes = INDIO_DIRECT_MODE;
@@ -909,43 +931,71 @@ static int ad7124_probe(struct spi_device *spi)
 		ret = regulator_enable(st->vref[i]);
 		if (ret)
 			return ret;
-
-		ret = devm_add_action_or_reset(&spi->dev, ad7124_reg_disable,
-					       st->vref[i]);
-		if (ret)
-			return ret;
 	}
 
 	st->mclk = devm_clk_get(&spi->dev, "mclk");
-	if (IS_ERR(st->mclk))
-		return PTR_ERR(st->mclk);
+	if (IS_ERR(st->mclk)) {
+		ret = PTR_ERR(st->mclk);
+		goto error_regulator_disable;
+	}
 
 	ret = clk_prepare_enable(st->mclk);
 	if (ret < 0)
-		return ret;
-
-	ret = devm_add_action_or_reset(&spi->dev, ad7124_clk_disable, st->mclk);
-	if (ret)
-		return ret;
+		goto error_regulator_disable;
 
 	ret = ad7124_soft_reset(st);
 	if (ret < 0)
-		return ret;
+		goto error_clk_disable_unprepare;
 
 	ret = ad7124_check_chip_id(st);
 	if (ret)
-		return ret;
+		goto error_clk_disable_unprepare;
 
 	ret = ad7124_setup(st);
 	if (ret < 0)
-		return ret;
+		goto error_clk_disable_unprepare;
 
-	ret = devm_ad_sd_setup_buffer_and_trigger(&spi->dev, indio_dev);
+	ret = ad_sd_setup_buffer_and_trigger(indio_dev);
 	if (ret < 0)
-		return ret;
+		goto error_clk_disable_unprepare;
 
-	return devm_iio_device_register(&spi->dev, indio_dev);
+	ret = iio_device_register(indio_dev);
+	if (ret < 0) {
+		dev_err(&spi->dev, "Failed to register iio device\n");
+		goto error_remove_trigger;
+	}
 
+	return 0;
+
+error_remove_trigger:
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+error_clk_disable_unprepare:
+	clk_disable_unprepare(st->mclk);
+error_regulator_disable:
+	for (i = ARRAY_SIZE(st->vref) - 1; i >= 0; i--) {
+		if (!IS_ERR_OR_NULL(st->vref[i]))
+			regulator_disable(st->vref[i]);
+	}
+
+	return ret;
+}
+
+static int ad7124_remove(struct spi_device *spi)
+{
+	struct iio_dev *indio_dev = spi_get_drvdata(spi);
+	struct ad7124_state *st = iio_priv(indio_dev);
+	int i;
+
+	iio_device_unregister(indio_dev);
+	ad_sd_cleanup_buffer_and_trigger(indio_dev);
+	clk_disable_unprepare(st->mclk);
+
+	for (i = ARRAY_SIZE(st->vref) - 1; i >= 0; i--) {
+		if (!IS_ERR_OR_NULL(st->vref[i]))
+			regulator_disable(st->vref[i]);
+	}
+
+	return 0;
 }
 
 static const struct of_device_id ad7124_of_match[] = {
@@ -963,6 +1013,7 @@ static struct spi_driver ad71124_driver = {
 		.of_match_table = ad7124_of_match,
 	},
 	.probe = ad7124_probe,
+	.remove	= ad7124_remove,
 };
 module_spi_driver(ad71124_driver);
 

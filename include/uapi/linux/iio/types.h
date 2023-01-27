@@ -47,6 +47,8 @@ enum iio_chan_type {
 	IIO_POSITIONRELATIVE,
 	IIO_PHASE,
 	IIO_MASSCONCENTRATION,
+	IIO_GENERIC_DATA,
+	IIO_FLAGS,
 };
 
 enum iio_modifier {
@@ -104,6 +106,7 @@ enum iio_event_type {
 	IIO_EV_TYPE_THRESH_ADAPTIVE,
 	IIO_EV_TYPE_MAG_ADAPTIVE,
 	IIO_EV_TYPE_CHANGE,
+	IIO_EV_TYPE_MAG_REFERENCED,
 };
 
 enum iio_event_direction {
